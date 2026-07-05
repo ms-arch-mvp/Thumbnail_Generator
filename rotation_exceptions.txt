@@ -1,0 +1,54 @@
+# Vanilla
+
+Rotate 180:
+d\bm_ka_door
+d\in_ci_door_01
+d\ex_s_door_rounded
+d\ex_s_door_double
+d\ex_s_door
+d\in_de_cabindoor
+d\in_h_trapdoor_01
+d\in_om_door_round
+d\in_redoran_barrackdoor_01
+d\in_om_door_round
+d\in_redoran_barrackdoor_01
+d\in_ar_door_01
+d\in_db_door01
+i\in_de_shack_door
+x\ex_v_vivecstatue_01
+x\ex_v_vivecstatue_02
+
+Rotate 270:
+d\bm_ic_door_01
+d\bm_ic_door_pelt
+d\ex_emp_tower_01_a
+d\ex_redoran_barracks_01_a
+d\ex_velothi_loaddoor
+d\in_de_cabindoor
+i\in_t_manor02_cap_right
+x\ex_v_sign
+x\ex_v_stdeyln_01
+x\ex_v_stolms_01
+x\ex_vivec_waterspout
+x\ex_vivec_wspout_d_02
+x\ex_vivec_ent
+x\ex_velothi_triwin
+x\ex_velothi_window
+x\ex_vivec_b_01
+
+# OAAB_Data
+
+Rotate 180:
+oaab\d\red_door_large
+oaab\i\impbig_tall_wall
+oaab\i\impbig_tall_wall02
+oaab\i\impbig_tall_wallarch
+
+Rotate 270:
+oaab\d\imp_gall_door_01_r
+oaab\x\velcantbrdgsup_01
+oaab\x\vivec_b_b_01
+oaab\x\vivec_b_b_02
+oaab\x\vivec_b_t_02
+oaab\x\vivec_bt_b_01
+oaab\x\vivec_bt_tb_01

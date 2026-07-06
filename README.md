@@ -10,3 +10,4 @@ Made with contributions from [Greatness7](https://github.com/Greatness7).
 ### Prerequistes
 
 * Latest version of MWSE
+* [MGE XE UF](https://www.nexusmods.com/morrowind/mods/57200)

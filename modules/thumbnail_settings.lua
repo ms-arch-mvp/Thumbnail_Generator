@@ -74,5 +74,18 @@ function this.getDefaultConfig(objectType)
     }
 end
 
+-- Shared camera/lighting values the preview's "Save to session" overwrites. A
+-- snapshot is taken as-loaded so "Reset session" can restore them (this.current
+-- may be the config table itself, so a save mutates it in place).
+this.sessionCameraKeys = { "yaw", "pitch", "roll", "perspectiveDistanceFactor",
+    "keyDimmer", "keyX", "keyY", "keyZ", "fillDimmer", "ambientScale", "diffuseScale", "forceOrtho" }
+
+local pristineCamera = {}
+for _, key in ipairs(this.sessionCameraKeys) do pristineCamera[key] = this.current[key] end
+
+function this.resetSessionCamera()
+    for _, key in ipairs(this.sessionCameraKeys) do this.current[key] = pristineCamera[key] end
+end
+
 
 return this

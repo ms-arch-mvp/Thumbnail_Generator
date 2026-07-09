@@ -309,7 +309,9 @@ function this.getSceneRotation(params)
     local config = params.config or {}
     local profile = params.profile
 
-    local yaw = config.yaw or 0
+    -- globalRotation is a shared azimuth added to every render (batch + preview),
+    -- applied about world Z exactly like the preview's yaw / Rotate 90.
+    local yaw = (config.yaw or 0) + (settings.current.globalRotation or 0)
     local pitch = config.pitch or 0
     local roll = config.roll or 0
 

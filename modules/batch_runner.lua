@@ -58,6 +58,28 @@ local function thumbnailExists(subject, meshPath)
     return lfs.fileexists(outputPath)
 end
 
+-- Reads the flagged mesh list (one path per line) from the output folder into a
+-- set keyed by normalized mesh path. Returns nil + the path if the file is absent.
+local function readFlaggedSet()
+    local path = settings.getOutputFolder() .. "\\" .. (settings.current.flaggedMeshesFile or "flagged_meshes.txt")
+    local file = io.open(path, "r")
+    if not file then return nil, path end
+
+    local set = {}
+    local count = 0
+    for line in file:lines() do
+        local mesh = line:gsub("^%s+", ""):gsub("%s+$", "")
+        if mesh ~= "" then
+            -- Entries may carry a leading "meshes\"; record mesh paths don't.
+            mesh = mesh:gsub("^[Mm][Ee][Ss][Hh][Ee][Ss][\\/]", "")
+            set[subject_resolver.normalizeMeshPath(mesh)] = true
+            count = count + 1
+        end
+    end
+    file:close()
+    return set, path, count
+end
+
 local function logEntry(subject)
     if subject.objectType == tes3.objectType.npc then
         return "npc: " .. (subject.recordId or "?")
@@ -275,6 +297,21 @@ function this.renderBatch(params)
         return
     end
 
+    -- Flagged run: restrict to meshes listed in the flagged file.
+    local flaggedSet
+    if params.flaggedOnly then
+        local set, path, count = readFlaggedSet()
+        if not set then
+            if params.onError then params.onError("Flagged file not found:\n" .. tostring(path)) end
+            return
+        end
+        if count == 0 then
+            if params.onError then params.onError("Flagged file is empty.") end
+            return
+        end
+        flaggedSet = set
+    end
+
     local types = params.objectType
     if types == nil then
         types = {}
@@ -319,8 +356,9 @@ function this.renderBatch(params)
                         dedupeKey = "npc:" .. (obj.id or ""):lower()
                     end
                     if dedupeKey ~= "" and not seenMeshes[dedupeKey] then
-                        local skip = settings.current.renderOnlyRotationExceptions
-                            and not rotation_exceptions.match(meshKey)
+                        local skip = (settings.current.renderOnlyRotationExceptions
+                                and not rotation_exceptions.match(meshKey))
+                            or (flaggedSet and not flaggedSet[meshKey])
                         if not skip then
                             seenMeshes[dedupeKey] = true
                             local subject = subject_resolver.resolve(obj)

@@ -321,6 +321,9 @@ function this.open(objOrSubject, options)
     end
     currentConfig.roll = currentConfig.roll or 0
     currentConfig.zoom = previewStartZoom
+    -- Follow the MCM Orthographic (batch) toggle, so turning it off there opens
+    -- the preview in perspective too instead of always defaulting to ortho.
+    currentConfig.ortho = config.current.forceOrtho
 
     -- Snapshot the opening camera values so the Reset button can restore them.
     local cameraDefaults = {
@@ -377,9 +380,8 @@ function this.open(objOrSubject, options)
         -- too. updateHDR alone only freezes auto-exposure, so both are needed.
         mgeShaders = mge.render.shaders,
         mgeHDR = mge.render.updateHDR,
-        -- MGE per-pixel lighting brightens the on-screen view but not the raw
-        -- fixed-function file render; match it to vanilla so the preview predicts
-        -- the output. Cosmetic only -- the render never reads this.
+        -- Candle flames (and similar particles) only render under MGE's per-pixel
+        -- path; force it on for the live view when enabled, and restore on close.
         mgeLightingMode = mge.getLightingMode(),
         -- Flames often sit under NiLODNode levels that switch off at the ortho
         -- dolly distance; a tiny lodAdjust forces the highest-detail level.
@@ -388,7 +390,9 @@ function this.open(objOrSubject, options)
     mge.render.pauseRenderingInMenus = false
     mge.render.shaders = false
     mge.render.updateHDR = false
-    mge.setLightingMode(mge.lightingMode.vertex)
+    if config.current.previewForcePerPixel then
+        mge.setLightingMode(mge.lightingMode.perPixel)
+    end
     camera.lodAdjust = config.current.lodAdjust
 
     local function applyDragRotation(newYaw, newPitch)
@@ -559,7 +563,7 @@ function this.open(objOrSubject, options)
 
     if not controlsMenu:loadMenuPosition() then
         controlsMenu.absolutePosAlignX = 1.0
-        controlsMenu.absolutePosAlignY = 0.5
+        controlsMenu.absolutePosAlignY = 0.35
         controlsMenu:updateLayout()
         controlsMenu.absolutePosAlignX = nil
         controlsMenu.absolutePosAlignY = nil
@@ -862,7 +866,8 @@ function this.open(objOrSubject, options)
 
     local orthoToggleBtn = toggleRow:createButton({ text = tempScene.config.ortho and "On" or "Off" })
     local function updateOrthoToggleVisual()
-        orthoToggleBtn.widget.state = tempScene.config.ortho and tes3.uiState.active or tes3.uiState.normal
+        -- Blue highlights the non-default (perspective); ortho is the default look.
+        orthoToggleBtn.widget.state = tempScene.config.ortho and tes3.uiState.normal or tes3.uiState.active
         orthoToggleBtn.text = tempScene.config.ortho and "On" or "Off"
     end
     updateOrthoToggleVisual()
@@ -993,6 +998,47 @@ function this.open(objOrSubject, options)
     actionBlock.flowDirection = tes3.flowDirection.topToBottom
     actionBlock.widthProportional = 1.0
     actionBlock.autoHeight = true
+
+    -- Save to session: copy the live preview's camera + lighting into the shared
+    -- session config so batch renders adopt them (in memory only; not written to
+    -- disk unless the MCM is opened and closed). Batch reads ortho from forceOrtho,
+    -- so mirror the preview's ortho onto it. Reset session restores the loaded values.
+    local sessionRow = actionBlock:createBlock()
+    sessionRow.flowDirection = tes3.flowDirection.leftToRight
+    sessionRow.widthProportional = 1.0
+    sessionRow.autoHeight = true
+    sessionRow.borderBottom = 6
+
+    local btnSaveSession = sessionRow:createButton({ text = "Save to session" })
+    btnSaveSession.widthProportional = 1.0
+    btnSaveSession.borderRight = 6
+    btnSaveSession:register(tes3.uiEvent.mouseClick, function()
+        local cfg = tempScene.config
+        local keys = { "yaw", "pitch", "roll", "perspectiveDistanceFactor",
+            "keyDimmer", "keyX", "keyY", "keyZ", "fillDimmer", "ambientScale", "diffuseScale" }
+        for _, key in ipairs(keys) do
+            config.current[key] = cfg[key]
+        end
+        config.current.forceOrtho = cfg.ortho
+        tes3.messageBox("Saved preview camera + lighting for this session's batch renders.")
+    end)
+
+    local btnResetSession = sessionRow:createButton({ text = "Reset session" })
+    btnResetSession.widthProportional = 1.0
+    btnResetSession:register(tes3.uiEvent.mouseClick, function()
+        config.resetSessionCamera()
+        -- Snap the live preview's camera + lighting back to those defaults too, so
+        -- the reset is visible (the ortho toggle is left as-is).
+        local defaults = config.getDefaultConfig(subject.objectType)
+        for _, key in ipairs({ "yaw", "pitch", "roll", "perspectiveDistanceFactor",
+            "keyDimmer", "keyX", "keyY", "keyZ", "fillDimmer", "ambientScale", "diffuseScale" }) do
+            tempScene.config[key] = defaults[key]
+            if sliderRefreshers[key] then sliderRefreshers[key]() end
+        end
+        updatePreviewScene()
+        controlsMenu:updateLayout()
+        tes3.messageBox("Reset session + preview camera and lighting to the loaded defaults.")
+    end)
 
     -- Perform test render & close
     local mainRow = actionBlock:createBlock()

@@ -66,17 +66,34 @@ function this.registerModConfig()
 
     group:createTextField({
         label = "Folder Path",
-        description = "Folder name that rendered thumbnail PNGs are written under, inside Data Files "
-            .. "(e.g. \"Thumbnail Generator\"). Shared by batch and preview renders.",
+        description = "Folder name that rendered thumbnails are written under, inside Data Files (e.g. \"Thumbnail Generator\"). Shared by batch and preview renders.",
         buttonText = "Apply",
         variable = mwse.mcm.createTableVariable({ id = "outputFolder", table = settings.current }),
+    })
+
+    local group = settingsPage:createCategory("Camera")
+
+    group:createYesNoButton({
+        label = "Orthographic",
+        description = "Force orthographic in batch and preview.",
+        variable = mwse.mcm.createTableVariable({ id = "forceOrtho", table = settings.current }),
+    })
+
+    group:createSlider({
+        label = "Global Rotation",
+        description = "Additional global rotation clockwise.",
+        min = -180,
+        max = 180,
+        step = 1,
+        jump = 15,
+        variable = mwse.mcm.createTableVariable({ id = "globalRotation", table = settings.current }),
     })
 
     local group = settingsPage:createCategory("Batch")
 
     group:createDropdown({
         label = "Render Resolution",
-        description = "Offscreen render target size used for batch rendering. Higher looks sharper but renders slower.",
+        description = "Offscreen render target size used for batch rendering.",
         options = resolutionOptions,
         variable = mwse.mcm.createTableVariable({ id = "renderResolution", table = settings.current }),
     })
@@ -97,60 +114,46 @@ function this.registerModConfig()
 
     group:createYesNoButton({
         label = "Skip Empty Renders",
-        description = "Don't write PNGs that contain nothing visible (e.g. magic-effect records with no "
-            .. "drawable content). Skipped items are listed in logs/empty.txt when logging is enabled.",
+        description = "Don't write files that contain nothing visible (e.g. magic-effect records with no drawable content). Skipped items are listed in logs/empty.txt when logging is enabled.",
         variable = mwse.mcm.createTableVariable({ id = "skipEmptyRenders", table = settings.current }),
     })
 
     group:createYesNoButton({
         label = "Skip Existing Thumbnails",
-        description = "Don't re-render an item whose output file already exists in the output folder. "
-            .. "Useful for resuming a large batch without redoing finished thumbnails.",
+        description = "Don't re-render an item whose output file already exists in the output folder. Useful for resuming a large batch without redoing finished thumbnails.",
         variable = mwse.mcm.createTableVariable({ id = "skipExistingThumbnails", table = settings.current }),
     })
 
     group:createYesNoButton({
         label = "Render Only Rotation Exceptions",
-        description = "When enabled, batch rendering skips every mesh that has no entry in "
-            .. "rotation_exceptions.txt. Useful for re-rendering just the items that needed a manual "
-            .. "rotation correction after editing that file.",
+        description = "When enabled, batch rendering skips every mesh that has no entry in rotation_exceptions.txt. Useful for re-rendering just the items that needed a manual rotation correction after editing that file.",
         variable = mwse.mcm.createTableVariable({ id = "renderOnlyRotationExceptions", table = settings.current }),
     })
 
     group:createYesNoButton({
         label = "NPC Filtering",
-        description = "When enabled, batch rendering only includes NPCs that respawn and have no "
-            .. "attached script (and skips a small blacklist of duplicate guard/ordinator records). "
-            .. "When disabled, every NPC record is rendered.",
+        description = "When enabled, batch rendering only includes NPCs that respawn and have no attached script (and skips a small blacklist of duplicate guard/ordinator records). When disabled, every NPC record is rendered.",
         variable = mwse.mcm.createTableVariable({ id = "npcFiltering", table = settings.current }),
     })
 
     group:createYesNoButton({
         label = "Write Log Files",
-        description = "After a batch, write logs/failed.txt and logs/empty.txt (one entry per line) into "
-            .. "the output folder. Logs from a run with no failures/empties are removed.",
+        description = "After a batch, write logs/failed.txt and logs/empty.txt (one entry per line) into the output folder. Logs from a run with no failures/empties are removed.",
         variable = mwse.mcm.createTableVariable({ id = "writeLogs", table = settings.current }),
-    })
-
-    group:createYesNoButton({
-        label = "Orthographic",
-        description = "When enabled, batch rendering forces every item to render orthographic, regardless of "
-            .. "its own per-item/type setting.",
-        variable = mwse.mcm.createTableVariable({ id = "forceOrtho", table = settings.current }),
     })
 
     local group = settingsPage:createCategory("Preview")
 
     group:createDropdown({
         label = "Render Resolution",
-        description = "Offscreen render target size used by the preview window's Render button.",
+        description = "Offscreen render target size used by the preview window's render button.",
         options = resolutionOptions,
         variable = mwse.mcm.createTableVariable({ id = "previewRenderResolution", table = settings.current }),
     })
 
     group:createDropdown({
         label = "Output Resolution",
-        description = "Final image size for the preview window's Render button.",
+        description = "Final image size for the preview window's render button.",
         options = resolutionOptions,
         variable = mwse.mcm.createTableVariable({ id = "previewOutputResolution", table = settings.current }),
     })
@@ -164,9 +167,14 @@ function this.registerModConfig()
 
     group:createYesNoButton({
         label = "Fit to Frame",
-        description = "When enabled, the preview's Render button tightens the crop to the subject's visible "
-            .. "pixels. When disabled, it keeps the looser framing with margin around the subject.",
+        description = "When enabled, the preview's render button tightens the crop to the subject's visible pixels. When disabled, it keeps the looser framing with margin around the subject.",
         variable = mwse.mcm.createTableVariable({ id = "previewFitToFrame", table = settings.current }),
+    })
+
+    group:createYesNoButton({
+        label = "Force Per-Pixel Lighting",
+        description = "Force MGE per-pixel lighting while the preview is open, so candle flames and similar particle effects render. Restores your MGE setting on close. Downside: per-pixel is brighter, so the preview looks lighter than the actual output.",
+        variable = mwse.mcm.createTableVariable({ id = "previewForcePerPixel", table = settings.current }),
     })
 
     mwse.mcm.register(template)

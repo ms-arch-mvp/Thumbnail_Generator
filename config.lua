@@ -10,7 +10,13 @@ end
 return {
     -- Output (inside Data Files)
     outputFolder = "Thumbnail Generator",
+    flaggedMeshesFile = "flagged_meshes.txt", -- one mesh path per line, in the output folder; read by the Flagged button
     resolutionOptions = { 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384 },
+
+    -- Camera (applied to every render: preview and batch)
+    forceOrtho = true, -- Orthographic toggle; the preview follows this on open
+    globalRotation = 0, -- azimuth (deg) about world Z added to every render
+    orthoDistanceFactor = 200, -- ortho emulation dolly distance; higher = flatter, but particles shrink
 
     -- Batch
     renderResolution = 2048,
@@ -24,8 +30,6 @@ return {
     npcRequireRespawn = true, -- only keep NPCs with the RESPAWN flag set
     npcIncludePattern = "outfit", -- ids containing this are always kept (empty to disable)
     writeLogs = true,
-    forceOrtho = true,
-    orthoDistanceFactor = 200, -- shared with preview; higher = flatter, but particles shrink
     particlePrimeTime = 0, -- shared; seconds of particle pre-simulation; 0 = capture live state
 
     -- Preview
@@ -33,6 +37,7 @@ return {
     previewOutputResolution = 1024,
     previewOutputFormat = "png", -- "png", "tga" or "dds"
     previewFitToFrame = true, -- tighten the render crop to the visible pixels
+    previewForcePerPixel = false, -- force MGE per-pixel lighting in the preview so candle flames render (preview looks brighter than the output)
     panSpeed = 0.75, -- WASD pan speed, in subject radii per second
 
     -- Camera view direction per category, MW world axes (+X east, +Y north, +Z up).
@@ -46,7 +51,7 @@ return {
         standard = { 1, -1, 1 },
     },
 
-    -- Per-item camera & lighting defaults (overrides live elsewhere)
+    -- Defaults
     yaw = 0,
     pitch = 0,
     roll = 0,

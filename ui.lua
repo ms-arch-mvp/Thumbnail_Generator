@@ -81,8 +81,14 @@ function this.openMenu()
         return false
     end)
 
-    local statusLabel = contents:createLabel({ text = "" })
-    statusLabel.borderBottom = 16
+    -- Fixed two-line block reserves the space so a one- vs two-line status message
+    -- doesn't resize the menu (a bare label auto-sizes to its text and ignores height).
+    local statusBlock = contents:createBlock()
+    statusBlock.widthProportional = 1.0
+    statusBlock.height = 44
+    statusBlock.autoHeight = false
+    statusBlock.borderBottom = 16
+    local statusLabel = statusBlock:createLabel({ text = "" })
     statusLabel.color = getColor("normal_color")
 
     local buttonBlock = contents:createBlock()
@@ -94,6 +100,9 @@ function this.openMenu()
 
     local btnRender = buttonBlock:createButton({ text = "Batch" })
     btnRender.borderRight = 10
+
+    local btnFlagged = buttonBlock:createButton({ text = "Flagged" })
+    btnFlagged.borderRight = 10
 
     local btnCancel = buttonBlock:createButton({ text = "Cancel Batch" })
     btnCancel.borderRight = 10
@@ -160,29 +169,28 @@ function this.openMenu()
         end
     end)
 
-    btnRender:register(tes3.uiEvent.mouseClick, function()
-        local selectedTypes = thumbnail_settings.getEnabledTypes()
-
-        if #selectedTypes == 0 then
-            statusLabel.text = "Error: No object types selected."
-            statusLabel.color = getColor("negative_color")
-            menu:updateLayout()
-            return
-        end
-
+    -- Shared batch launch. `extra` carries the scope: Batch passes enabled types
+    -- and the search pattern; Flagged passes flaggedOnly (all types, flagged file).
+    local function startBatch(extra)
         statusLabel.text = "Rendering batch... (Starting)"
         statusLabel.color = getColor("active_color")
         btnRender.visible = false
+        btnFlagged.visible = false
         btnPreview.visible = false
         btnCancel.visible = true
         menu:updateLayout()
 
+        local function restoreButtons()
+            btnRender.visible = true
+            btnFlagged.visible = true
+            btnPreview.visible = true
+            btnCancel.visible = false
+        end
+
         -- one-frame delay so the "Starting" label actually renders first
         timer.frame.delayOneFrame(function()
             local ok, err = pcall(function()
-                render.renderBatch({
-                    objectType = selectedTypes,
-                    searchPattern = searchInput.text,
+                local params = {
                     forceOrtho = settings.current.forceOrtho,
                     resolution = settings.current.renderResolution,
                     dstResolution = settings.current.outputResolution,
@@ -200,31 +208,43 @@ function this.openMenu()
                         end
                         statusLabel.text = text
                         statusLabel.color = getColor("positive_color")
-                        btnRender.visible = true
-                        btnPreview.visible = true
-                        btnCancel.visible = false
+                        restoreButtons()
                         menu:updateLayout()
                     end,
                     onError = function(errMsg)
                         statusLabel.text = tostring(errMsg)
                         statusLabel.color = getColor("negative_color")
-                        btnRender.visible = true
-                        btnPreview.visible = true
-                        btnCancel.visible = false
+                        restoreButtons()
                         menu:updateLayout()
                     end,
-                })
+                }
+                for key, value in pairs(extra) do params[key] = value end
+                render.renderBatch(params)
             end)
 
             if not ok then
                 statusLabel.text = "Error: " .. tostring(err)
                 statusLabel.color = getColor("negative_color")
-                btnRender.visible = true
-                btnPreview.visible = true
-                btnCancel.visible = false
+                restoreButtons()
                 menu:updateLayout()
             end
         end)
+    end
+
+    btnRender:register(tes3.uiEvent.mouseClick, function()
+        local selectedTypes = thumbnail_settings.getEnabledTypes()
+        if #selectedTypes == 0 then
+            statusLabel.text = "Error: No object types selected."
+            statusLabel.color = getColor("negative_color")
+            menu:updateLayout()
+            return
+        end
+        startBatch({ objectType = selectedTypes, searchPattern = searchInput.text })
+    end)
+
+    -- Renders only meshes listed in the flagged file, across all object types.
+    btnFlagged:register(tes3.uiEvent.mouseClick, function()
+        startBatch({ flaggedOnly = true })
     end)
 
     menu:updateLayout()

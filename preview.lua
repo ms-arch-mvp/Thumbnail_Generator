@@ -320,10 +320,15 @@ function this.open(objOrSubject, options)
         currentConfig[k] = v
     end
     currentConfig.roll = currentConfig.roll or 0
-    currentConfig.zoom = previewStartZoom
+    -- initialConfig.zoom is render-scale (from getDefaultConfig / config.current);
+    -- tempScene.config.zoom must be internal (2.0 / displayZoom).
+    -- Default config.lua zoom = 1.0 render-scale = 2.0 internal = display 1x (neutral fit).
+    currentConfig.zoom = (initialConfig.zoom or 1.0) * 2.0
     -- Follow the MCM Orthographic (batch) toggle, so turning it off there opens
     -- the preview in perspective too instead of always defaulting to ortho.
     currentConfig.ortho = config.current.forceOrtho
+    -- Follow the MCM Fit to Frame toggle as the opening state.
+    currentConfig.fitToFrame = config.current.fitToFrame
 
     -- Snapshot the opening camera values so the Reset button can restore them.
     local cameraDefaults = {
@@ -371,8 +376,9 @@ function this.open(objOrSubject, options)
         sliders = {},
         labels = {},
         -- WASD pan offsets, as a fraction of the frustum width/height.
-        panX = 0,
-        panY = 0,
+        -- Restored from the session so "Save to session" carries pan into the next preview.
+        panX = config.current.panX or 0,
+        panY = config.current.panY or 0,
         baseFrustum = render.getFrustum(camera),
         -- MGE pauses world rendering in menus; unpause for a live view.
         mgePauseInMenus = mge.render.pauseRenderingInMenus,
@@ -535,7 +541,7 @@ function this.open(objOrSubject, options)
     event.register(tes3.event.mouseButtonUp, onMouseButtonUp)
     tempScene.mouseUpHandler = onMouseButtonUp
 
-    local zoomWheelStep = 0.05
+    local zoomWheelStep = 0.10
     local function onMouseWheel(e)
         if not tempScene or isMouseOverUI() or not isPreviewActive() then return end
         local currentDisplayZoom = 2.0 / tempScene.config.zoom
@@ -853,18 +859,25 @@ function this.open(objOrSubject, options)
         end,
     })
 
-    -- Orthographic and Background toggles share one row to save vertical space.
-    local toggleRow = scrollContent:createBlock()
-    toggleRow.flowDirection = tes3.flowDirection.leftToRight
-    toggleRow.widthProportional = 1.0
-    toggleRow.autoHeight = true
-    toggleRow.borderBottom = 8
-    toggleRow.childAlignY = 0.5
+    -- Three stacked toggle buttons: Orthographic / Fit to Frame / BG.
+    local toggleColumn = scrollContent:createBlock()
+    toggleColumn.flowDirection = tes3.flowDirection.topToBottom
+    toggleColumn.widthProportional = 1.0
+    toggleColumn.autoHeight = true
+    toggleColumn.borderBottom = 8
 
-    local orthoToggleLabel = toggleRow:createLabel({ text = "Orthographic:" })
+    -- Orthographic toggle ------------------------------------------------
+    local orthoRow = toggleColumn:createBlock()
+    orthoRow.flowDirection = tes3.flowDirection.leftToRight
+    orthoRow.widthProportional = 1.0
+    orthoRow.autoHeight = true
+    orthoRow.childAlignY = 0.5
+    orthoRow.borderBottom = 4
+
+    local orthoToggleLabel = orthoRow:createLabel({ text = "Orthographic:" })
     orthoToggleLabel.color = getColor("normal_color")
 
-    local orthoToggleBtn = toggleRow:createButton({ text = tempScene.config.ortho and "On" or "Off" })
+    local orthoToggleBtn = orthoRow:createButton({ text = tempScene.config.ortho and "On" or "Off" })
     local function updateOrthoToggleVisual()
         -- Blue highlights the non-default (perspective); ortho is the default look.
         orthoToggleBtn.widget.state = tempScene.config.ortho and tes3.uiState.normal or tes3.uiState.active
@@ -878,12 +891,42 @@ function this.open(objOrSubject, options)
         controlsMenu:updateLayout()
     end)
 
-    local bgToggleLabel = toggleRow:createLabel({ text = "BG:" })
+    -- Fit to Frame toggle ------------------------------------------------
+    local fitRow = toggleColumn:createBlock()
+    fitRow.flowDirection = tes3.flowDirection.leftToRight
+    fitRow.widthProportional = 1.0
+    fitRow.autoHeight = true
+    fitRow.childAlignY = 0.5
+    fitRow.borderBottom = 4
+
+    local fitToggleLabel = fitRow:createLabel({ text = "Fit to Frame:" })
+    fitToggleLabel.color = getColor("normal_color")
+
+    local fitToggleBtn = fitRow:createButton({ text = tempScene.config.fitToFrame and "On" or "Off" })
+    local function updateFitToggleVisual()
+        -- Blue highlights the non-default (fit off); fit is the default look.
+        fitToggleBtn.widget.state = tempScene.config.fitToFrame and tes3.uiState.normal or tes3.uiState.active
+        fitToggleBtn.text = tempScene.config.fitToFrame and "On" or "Off"
+    end
+    updateFitToggleVisual()
+    fitToggleBtn:register(tes3.uiEvent.mouseClick, function()
+        tempScene.config.fitToFrame = not tempScene.config.fitToFrame
+        updateFitToggleVisual()
+        controlsMenu:updateLayout()
+    end)
+
+    -- BG toggle ----------------------------------------------------------
+    local bgRow = toggleColumn:createBlock()
+    bgRow.flowDirection = tes3.flowDirection.leftToRight
+    bgRow.widthProportional = 1.0
+    bgRow.autoHeight = true
+    bgRow.childAlignY = 0.5
+
+    local bgToggleLabel = bgRow:createLabel({ text = "BG:" })
     bgToggleLabel.color = getColor("normal_color")
-    bgToggleLabel.borderLeft = 12
 
     local bgWhite = false
-    local bgToggleBtn = toggleRow:createButton({ text = "Black" })
+    local bgToggleBtn = bgRow:createButton({ text = "Black" })
     local function updateBgToggleVisual()
         bgToggleBtn.widget.state = bgWhite and tes3.uiState.active or tes3.uiState.normal
         bgToggleBtn.text = bgWhite and "White" or "Black"
@@ -1014,14 +1057,19 @@ function this.open(objOrSubject, options)
     btnSaveSession.borderRight = 6
     btnSaveSession:register(tes3.uiEvent.mouseClick, function()
         local cfg = tempScene.config
-        local keys = { "yaw", "pitch", "roll", "zoom", "perspectiveDistanceFactor",
+        local keys = { "yaw", "pitch", "roll", "perspectiveDistanceFactor",
             "keyDimmer", "keyX", "keyY", "keyZ", "fillDimmer", "ambientScale", "diffuseScale" }
         for _, key in ipairs(keys) do
             config.current[key] = cfg[key]
         end
+        -- cfg.zoom is internal (2.0 / displayZoom); the render pipeline expects
+        -- the normalised scale where 1.0 = neutral, matching config.lua's default.
+        -- The Render button uses the same /2.0 conversion.
+        config.current.zoom = cfg.zoom / 2.0
         config.current.panX = tempScene.panX or 0
         config.current.panY = tempScene.panY or 0
         config.current.forceOrtho = cfg.ortho
+        config.current.fitToFrame = cfg.fitToFrame
         tes3.messageBox("Saved preview camera + lighting for this session's batch renders.")
     end)
 
@@ -1032,13 +1080,22 @@ function this.open(objOrSubject, options)
         -- Snap the live preview's camera + lighting back to those defaults too, so
         -- the reset is visible (the ortho toggle is left as-is).
         local defaults = config.getDefaultConfig(subject.objectType)
-        for _, key in ipairs({ "yaw", "pitch", "roll", "zoom", "perspectiveDistanceFactor",
+        for _, key in ipairs({ "yaw", "pitch", "roll", "perspectiveDistanceFactor",
             "keyDimmer", "keyX", "keyY", "keyZ", "fillDimmer", "ambientScale", "diffuseScale" }) do
             tempScene.config[key] = defaults[key]
             if sliderRefreshers[key] then sliderRefreshers[key]() end
         end
+        -- defaults.zoom is render-scale (1.0 = neutral); tempScene.config.zoom is
+        -- internal (2.0 / displayZoom), so convert back.
+        tempScene.config.zoom = (defaults.zoom or 1.0) * 2.0
+        if sliderRefreshers.zoom then sliderRefreshers.zoom() end
         tempScene.panX = config.current.panX or 0
         tempScene.panY = config.current.panY or 0
+        -- Restore fitToFrame and ortho to the session defaults and refresh buttons.
+        tempScene.config.fitToFrame = config.current.fitToFrame
+        updateFitToggleVisual()
+        tempScene.config.ortho = config.current.forceOrtho
+        updateOrthoToggleVisual()
         updatePreviewScene()
         controlsMenu:updateLayout()
         tes3.messageBox("Reset session + preview camera and lighting to the loaded defaults.")
@@ -1068,7 +1125,10 @@ function this.open(objOrSubject, options)
                 roll = tempScene.config.roll,
                 -- Fit-to-frame re-crops to content, so zoom is moot there; with it
                 -- off, honor the live zoom so a manual crop carries into the render.
-                zoom = config.current.fitToFrame and 1.0 or tempScene.config.zoom,
+                -- tempScene.config.zoom is internal (2.0/displayZoom); computeOrthoFit
+                -- expects a value where higher = larger frustum = smaller object, so
+                -- divide by 2.0 to normalise: default internal 2.0 -> render zoom 1.0.
+                zoom = tempScene.config.fitToFrame and 1.0 or (tempScene.config.zoom / 2.0),
                 perspectiveDistanceFactor = tempScene.config.perspectiveDistanceFactor,
                 keyDimmer = tempScene.config.keyDimmer,
                 keyX = tempScene.config.keyX,
@@ -1083,7 +1143,7 @@ function this.open(objOrSubject, options)
                 resolution = config.current.previewRenderResolution,
                 dstResolution = config.current.previewOutputResolution,
                 outputFormat = config.current.previewOutputFormat,
-                fitToFrame = config.current.fitToFrame,
+                fitToFrame = tempScene.config.fitToFrame,
                 -- WASD pan carries the crop into the render (moot when fit is on).
                 panX = tempScene.panX,
                 panY = tempScene.panY,

@@ -73,12 +73,6 @@ function this.registerModConfig()
 
     local group = settingsPage:createCategory("Camera")
 
-    group:createYesNoButton({
-        label = "Orthographic",
-        description = "Force orthographic in batch and preview.",
-        variable = mwse.mcm.createTableVariable({ id = "forceOrtho", table = settings.current }),
-    })
-
     group:createSlider({
         label = "Global Rotation",
         description = "Additional global rotation clockwise.",
@@ -87,6 +81,12 @@ function this.registerModConfig()
         step = 1,
         jump = 15,
         variable = mwse.mcm.createTableVariable({ id = "globalRotation", table = settings.current }),
+    })
+
+    group:createYesNoButton({
+        label = "Orthographic",
+        description = "Force orthographic in batch and preview.",
+        variable = mwse.mcm.createTableVariable({ id = "forceOrtho", table = settings.current }),
     })
 
     group:createYesNoButton({

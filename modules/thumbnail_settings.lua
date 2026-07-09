@@ -72,6 +72,8 @@ function this.getDefaultConfig(objectType)
         pitch = c.pitch,
         roll = c.roll,
         zoom = c.zoom,
+        panX = c.panX or 0,
+        panY = c.panY or 0,
         perspectiveDistanceFactor = c.perspectiveDistanceFactor,
         keyDimmer = c.keyDimmer,
         keyX = c.keyX,
@@ -88,7 +90,7 @@ end
 -- snapshot is taken as-loaded so "Reset session" can restore them (this.current
 -- may be the config table itself, so a save mutates it in place).
 this.sessionCameraKeys = { "yaw", "pitch", "roll", "zoom", "panX", "panY", "perspectiveDistanceFactor",
-    "keyDimmer", "keyX", "keyY", "keyZ", "fillDimmer", "ambientScale", "diffuseScale", "forceOrtho" }
+    "keyDimmer", "keyX", "keyY", "keyZ", "fillDimmer", "ambientScale", "diffuseScale", "forceOrtho", "fitToFrame" }
 
 local pristineCamera = {}
 for _, key in ipairs(this.sessionCameraKeys) do pristineCamera[key] = this.current[key] end

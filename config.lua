@@ -14,9 +14,10 @@ return {
     resolutionOptions = { 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384 },
 
     -- Camera (applied to every render: preview and batch)
-    forceOrtho = true, -- Orthographic toggle; the preview follows this on open
     globalRotation = 0, -- azimuth (deg) about world Z added to every render
-    orthoDistanceFactor = 200, -- ortho emulation dolly distance; higher = flatter, but particles shrink
+    forceOrtho = true, -- Orthographic toggle; the preview follows this on open
+    fitToFrame = true, -- when enabled, tighten the crop to visible pixels; when disabled, keep the looser first-pass framing
+    orthoDistanceFactor = 200, -- ortho emulation dolly distance; higher = flatter
 
     -- Batch
     renderResolution = 2048,
@@ -31,9 +32,6 @@ return {
     npcIncludePattern = "outfit", -- ids containing this are always kept (empty to disable)
     writeLogs = true,
     particlePrimeTime = 0, -- shared; seconds of particle pre-simulation; 0 = capture live state
-
-    -- Global crop behavior (shared by batch + preview renders)
-    fitToFrame = true, -- when enabled, tighten the crop to visible pixels; when disabled, keep the looser first-pass framing
 
     -- Preview
     previewRenderResolution = 2048,

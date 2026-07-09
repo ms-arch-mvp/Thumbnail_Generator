@@ -891,9 +891,30 @@ function this.open(objOrSubject, options)
         controlsMenu:updateLayout()
     end)
 
+    local camButtonRow = scrollContent:createBlock()
+    camButtonRow.flowDirection = tes3.flowDirection.leftToRight
+    camButtonRow.widthProportional = 1.0
+    camButtonRow.autoHeight = true
+    camButtonRow.borderBottom = 8
+
+    -- Step the subject 90 degrees clockwise about its vertical -- the same azimuth
+    -- axis the batch rotation exceptions use. Re-centers but keeps the framing.
+    local rotate90Btn = camButtonRow:createButton({ text = "Rotate 90" })
+    rotate90Btn:register(tes3.uiEvent.mouseClick, function()
+        tempScene.config.yaw = (tempScene.config.yaw - 90 + 180) % 360 - 180
+        if sliderRefreshers.yaw then sliderRefreshers.yaw() end
+        local keepFrustum = tempScene.orthoFrustum
+        updatePreviewScene()
+        if keepFrustum then
+            tempScene.orthoFrustum = keepFrustum
+            render.setFrustum(tempScene.camera, keepFrustum)
+        end
+        controlsMenu:updateLayout()
+    end)
+
     -- Restore the camera sliders to their opening values.
-    local resetBtn = scrollContent:createButton({ text = "Reset Camera" })
-    resetBtn.borderBottom = 8
+    local resetBtn = camButtonRow:createButton({ text = "Reset Camera" })
+    resetBtn.borderLeft = 12
     resetBtn:register(tes3.uiEvent.mouseClick, function()
         for key, value in pairs(cameraDefaults) do
             tempScene.config[key] = value

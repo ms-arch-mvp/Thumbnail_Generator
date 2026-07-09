@@ -692,7 +692,14 @@ function this.getOutputPath(subject, fallbackMeshPath, subFolder)
     local path
     if subject and subject.object and subject.object.objectType == tes3.objectType.npc then
         local namePart = subject.recordId or "unknown"
-        path = string.format("%s/%s/npc/%s.png", basePath, subFolder, namePart)
+        -- NPC thumbnails are organized separately from mesh-path thumbnails: put them
+        -- under a top-level "npc" folder (parallel to the default "meshes" folder).
+        -- The preview's test render still uses its own subFolder ("previews").
+        if subFolder == "meshes" then
+            path = string.format("%s/npc/%s.png", basePath, namePart)
+        else
+            path = string.format("%s/%s/npc/%s.png", basePath, subFolder, namePart)
+        end
     else
         -- Normalized path keeps re-renders overwriting the same file.
         local meshName = (subject and subject.normalizedMeshPath and subject.normalizedMeshPath ~= "" and subject.normalizedMeshPath)

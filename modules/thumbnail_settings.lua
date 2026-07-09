@@ -29,6 +29,16 @@ else
     this.current = defaults
 end
 
+-- Migration: older configs stored fit-to-frame under previewFitToFrame only.
+-- Promote it to the global fitToFrame if the new key is missing.
+if this.current.fitToFrame == nil then
+    if this.current.previewFitToFrame ~= nil then
+        this.current.fitToFrame = this.current.previewFitToFrame
+    else
+        this.current.fitToFrame = true
+    end
+end
+
 -- Strips a leading "data files\" (any case / slash style) so getOutputFolder can
 -- re-add exactly one, regardless of what was typed into the folder setting.
 local function stripDataFilesPrefix(folder)
@@ -77,7 +87,7 @@ end
 -- Shared camera/lighting values the preview's "Save to session" overwrites. A
 -- snapshot is taken as-loaded so "Reset session" can restore them (this.current
 -- may be the config table itself, so a save mutates it in place).
-this.sessionCameraKeys = { "yaw", "pitch", "roll", "perspectiveDistanceFactor",
+this.sessionCameraKeys = { "yaw", "pitch", "roll", "zoom", "panX", "panY", "perspectiveDistanceFactor",
     "keyDimmer", "keyX", "keyY", "keyZ", "fillDimmer", "ambientScale", "diffuseScale", "forceOrtho" }
 
 local pristineCamera = {}

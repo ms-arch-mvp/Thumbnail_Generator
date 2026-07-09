@@ -1014,11 +1014,13 @@ function this.open(objOrSubject, options)
     btnSaveSession.borderRight = 6
     btnSaveSession:register(tes3.uiEvent.mouseClick, function()
         local cfg = tempScene.config
-        local keys = { "yaw", "pitch", "roll", "perspectiveDistanceFactor",
+        local keys = { "yaw", "pitch", "roll", "zoom", "perspectiveDistanceFactor",
             "keyDimmer", "keyX", "keyY", "keyZ", "fillDimmer", "ambientScale", "diffuseScale" }
         for _, key in ipairs(keys) do
             config.current[key] = cfg[key]
         end
+        config.current.panX = tempScene.panX or 0
+        config.current.panY = tempScene.panY or 0
         config.current.forceOrtho = cfg.ortho
         tes3.messageBox("Saved preview camera + lighting for this session's batch renders.")
     end)
@@ -1030,11 +1032,13 @@ function this.open(objOrSubject, options)
         -- Snap the live preview's camera + lighting back to those defaults too, so
         -- the reset is visible (the ortho toggle is left as-is).
         local defaults = config.getDefaultConfig(subject.objectType)
-        for _, key in ipairs({ "yaw", "pitch", "roll", "perspectiveDistanceFactor",
+        for _, key in ipairs({ "yaw", "pitch", "roll", "zoom", "perspectiveDistanceFactor",
             "keyDimmer", "keyX", "keyY", "keyZ", "fillDimmer", "ambientScale", "diffuseScale" }) do
             tempScene.config[key] = defaults[key]
             if sliderRefreshers[key] then sliderRefreshers[key]() end
         end
+        tempScene.panX = config.current.panX or 0
+        tempScene.panY = config.current.panY or 0
         updatePreviewScene()
         controlsMenu:updateLayout()
         tes3.messageBox("Reset session + preview camera and lighting to the loaded defaults.")
@@ -1064,7 +1068,7 @@ function this.open(objOrSubject, options)
                 roll = tempScene.config.roll,
                 -- Fit-to-frame re-crops to content, so zoom is moot there; with it
                 -- off, honor the live zoom so a manual crop carries into the render.
-                zoom = config.current.previewFitToFrame and 1.0 or tempScene.config.zoom,
+                zoom = config.current.fitToFrame and 1.0 or tempScene.config.zoom,
                 perspectiveDistanceFactor = tempScene.config.perspectiveDistanceFactor,
                 keyDimmer = tempScene.config.keyDimmer,
                 keyX = tempScene.config.keyX,
@@ -1079,7 +1083,7 @@ function this.open(objOrSubject, options)
                 resolution = config.current.previewRenderResolution,
                 dstResolution = config.current.previewOutputResolution,
                 outputFormat = config.current.previewOutputFormat,
-                fitToFrame = config.current.previewFitToFrame,
+                fitToFrame = config.current.fitToFrame,
                 -- WASD pan carries the crop into the render (moot when fit is on).
                 panX = tempScene.panX,
                 panY = tempScene.panY,

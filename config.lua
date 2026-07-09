@@ -32,11 +32,15 @@ return {
     writeLogs = true,
     particlePrimeTime = 0, -- shared; seconds of particle pre-simulation; 0 = capture live state
 
+    -- Global crop behavior (shared by batch + preview renders)
+    fitToFrame = true, -- when enabled, tighten the crop to visible pixels; when disabled, keep the looser first-pass framing
+
     -- Preview
     previewRenderResolution = 2048,
     previewOutputResolution = 1024,
     previewOutputFormat = "png", -- "png", "tga" or "dds"
-    previewFitToFrame = true, -- tighten the render crop to the visible pixels
+    -- Legacy (pre-global) setting. Kept for backward compatibility with saved configs.
+    previewFitToFrame = nil,
     previewForcePerPixel = false, -- force MGE per-pixel lighting in the preview so candle flames render (preview looks brighter than the output)
     panSpeed = 0.75, -- WASD pan speed, in subject radii per second
 
@@ -56,6 +60,8 @@ return {
     pitch = 0,
     roll = 0,
     zoom = 1.0,
+    panX = 0, -- subject-radius offset along camera right; only applied when fitToFrame is off
+    panY = 0, -- subject-radius offset along camera up; only applied when fitToFrame is off
     ortho = true,
     lodAdjust = 0.001, -- tiny value forces highest-detail LOD level
     perspectiveDistanceFactor = 8, -- lower = closer = wider-angle look

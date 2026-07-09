@@ -142,7 +142,15 @@ function this.registerModConfig()
         variable = mwse.mcm.createTableVariable({ id = "writeLogs", table = settings.current }),
     })
 
-    local group = settingsPage:createCategory("Preview")
+    local group = settingsPage:createCategory("Crop")
+
+    group:createYesNoButton({
+        label = "Fit to Frame",
+        description = "When enabled, renders tighten the crop to the subject's visible pixels. When disabled, renders keep the looser first-pass framing with margin (and preview zoom/pan can carry into the output).",
+        variable = mwse.mcm.createTableVariable({ id = "fitToFrame", table = settings.current }),
+    })
+
+    group = settingsPage:createCategory("Preview")
 
     group:createDropdown({
         label = "Render Resolution",
@@ -163,12 +171,6 @@ function this.registerModConfig()
         description = "PNG (compressed), TGA (uncompressed), or DDS (uncompressed).",
         options = formatOptions,
         variable = mwse.mcm.createTableVariable({ id = "previewOutputFormat", table = settings.current }),
-    })
-
-    group:createYesNoButton({
-        label = "Fit to Frame",
-        description = "When enabled, the preview's render button tightens the crop to the subject's visible pixels. When disabled, it keeps the looser framing with margin around the subject.",
-        variable = mwse.mcm.createTableVariable({ id = "previewFitToFrame", table = settings.current }),
     })
 
     group:createYesNoButton({

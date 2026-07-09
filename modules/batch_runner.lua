@@ -166,6 +166,8 @@ local function onFrame()
                     pitch = cfg.pitch,
                     roll = cfg.roll,
                     zoom = cfg.zoom,
+                    panX = cfg.panX,
+                    panY = cfg.panY,
                     perspectiveDistanceFactor = cfg.perspectiveDistanceFactor,
                     keyDimmer = cfg.keyDimmer,
                     keyX = cfg.keyX,
@@ -174,6 +176,7 @@ local function onFrame()
                     fillDimmer = cfg.fillDimmer,
                     ambientScale = cfg.ambientScale,
                     diffuseScale = cfg.diffuseScale,
+                    fitToFrame = settings.current.fitToFrame,
                     -- The MCM toggle is authoritative for the whole batch (not
                     -- `or cfg.ortho` -- that defaults true and would defeat toggling off).
                     ortho = batch.forceOrtho,

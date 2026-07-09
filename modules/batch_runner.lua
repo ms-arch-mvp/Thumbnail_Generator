@@ -151,6 +151,12 @@ local function onFrame()
         local mPath = subject.meshPath
         local outputPath = renderer.getOutputPath(subject, mPath)
         local cfg = subject.config
+        local fitToFrame = settings.current.fitToFrame ~= false
+        -- Match preview behavior: when fitting to frame, zoom/pan are moot (refit
+        -- re-crops to content), so force neutral values for consistency.
+        local zoom = fitToFrame and 1.0 or cfg.zoom
+        local panX = fitToFrame and 0 or cfg.panX
+        local panY = fitToFrame and 0 or cfg.panY
 
         local dirOk, dirErr = pcall(function()
             renderer.ensureDirectory(outputPath)
@@ -165,9 +171,9 @@ local function onFrame()
                     yaw = cfg.yaw,
                     pitch = cfg.pitch,
                     roll = cfg.roll,
-                    zoom = cfg.zoom,
-                    panX = cfg.panX,
-                    panY = cfg.panY,
+                    zoom = zoom,
+                    panX = panX,
+                    panY = panY,
                     perspectiveDistanceFactor = cfg.perspectiveDistanceFactor,
                     keyDimmer = cfg.keyDimmer,
                     keyX = cfg.keyX,

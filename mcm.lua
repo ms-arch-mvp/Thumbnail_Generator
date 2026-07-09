@@ -89,6 +89,12 @@ function this.registerModConfig()
         variable = mwse.mcm.createTableVariable({ id = "globalRotation", table = settings.current }),
     })
 
+    group:createYesNoButton({
+        label = "Fit to Frame",
+        description = "When enabled, renders tighten the crop to the subject's visible pixels. When disabled, renders keep the looser first-pass framing with margin (and preview zoom/pan can carry into the output).",
+        variable = mwse.mcm.createTableVariable({ id = "fitToFrame", table = settings.current }),
+    })
+
     local group = settingsPage:createCategory("Batch")
 
     group:createDropdown({
@@ -140,14 +146,6 @@ function this.registerModConfig()
         label = "Write Log Files",
         description = "After a batch, write logs/failed.txt and logs/empty.txt (one entry per line) into the output folder. Logs from a run with no failures/empties are removed.",
         variable = mwse.mcm.createTableVariable({ id = "writeLogs", table = settings.current }),
-    })
-
-    local group = settingsPage:createCategory("Crop")
-
-    group:createYesNoButton({
-        label = "Fit to Frame",
-        description = "When enabled, renders tighten the crop to the subject's visible pixels. When disabled, renders keep the looser first-pass framing with margin (and preview zoom/pan can carry into the output).",
-        variable = mwse.mcm.createTableVariable({ id = "fitToFrame", table = settings.current }),
     })
 
     group = settingsPage:createCategory("Preview")

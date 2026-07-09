@@ -1,0 +1,67 @@
+-- Editable defaults; modules/thumbnail_settings.lua loads (and optionally persists) them.
+local constants = require("ThumbnailGenerator.constants")
+
+-- All object categories enabled by default.
+local enabledTypes = {}
+for _, meta in ipairs(constants.typeMetadata) do
+    enabledTypes[meta.key] = true
+end
+
+return {
+    -- Output (inside Data Files)
+    outputFolder = "Thumbnail Generator",
+    resolutionOptions = { 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384 },
+
+    -- Batch
+    renderResolution = 2048,
+    outputResolution = 1024,
+    outputFormat = "png", -- "png", "tga" or "dds"
+    enabledTypes = enabledTypes,
+    skipEmptyRenders = true,
+    skipExistingThumbnails = false, -- don't re-render an item whose output file already exists
+    renderOnlyRotationExceptions = false,
+    npcFiltering = true, -- MCM toggle for the rules below
+    npcRequireRespawn = true, -- only keep NPCs with the RESPAWN flag set
+    npcIncludePattern = "outfit", -- ids containing this are always kept (empty to disable)
+    writeLogs = true,
+    forceOrtho = true,
+    orthoDistanceFactor = 200, -- shared with preview; higher = flatter, but particles shrink
+    particlePrimeTime = 0, -- shared; seconds of particle pre-simulation; 0 = capture live state
+
+    -- Preview
+    previewRenderResolution = 2048,
+    previewOutputResolution = 1024,
+    previewOutputFormat = "png", -- "png", "tga" or "dds"
+    previewFitToFrame = true, -- tighten the render crop to the visible pixels
+    panSpeed = 0.75, -- WASD pan speed, in subject radii per second
+
+    -- Camera view direction per category, MW world axes (+X east, +Y north, +Z up).
+    -- A record type listed here (by its type key) gets its own base view;
+    -- everything else uses "standard". Hair body parts use "hair".
+    viewDirections = {
+        bodypart = { 0, -1, 0 },
+        creature = { -1, 1, 1 },
+        hair     = { 1, -1, 1 },
+        npc      = { 0, 1, 0 },
+        standard = { 1, -1, 1 },
+    },
+
+    -- Per-item camera & lighting defaults (overrides live elsewhere)
+    yaw = 0,
+    pitch = 0,
+    roll = 0,
+    zoom = 1.0,
+    ortho = true,
+    lodAdjust = 0.001, -- tiny value forces highest-detail LOD level
+    perspectiveDistanceFactor = 8, -- lower = closer = wider-angle look
+    keyDimmer = 1.2,
+    keyX = -1.2,
+    keyY = 1.2,
+    keyZ = 2.0,
+    fillDimmer = 0.7,
+    ambientScale = 1.0,
+    diffuseScale = 1.3,
+
+    -- false: every session starts from this file; true: reload saved MCM edits
+    useSavedConfig = false,
+}

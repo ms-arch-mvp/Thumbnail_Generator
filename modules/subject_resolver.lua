@@ -51,15 +51,73 @@ function this.resolve(obj)
 end
 
 
--- Searches object records and resolves each into a subject. Matching is either
--- by pattern (against id, name, mesh path, or source mod) or, when params.sourceMod
--- is set, by exact source plugin. One entry per base record: auto-generated
--- per-placement actor instances are skipped, ids deduplicated.
+-- Translates a glob term (with `*` and `?` wildcards) into a whole-field-anchored
+-- Lua pattern: every magic char is escaped, then the escaped wildcards reopened.
+local function globToPattern(term)
+    local pat = term:gsub("[%(%)%.%%%+%-%*%?%[%]%^%$]", "%%%0")
+    pat = pat:gsub("%%%*", ".*"):gsub("%%%?", ".")
+    return "^" .. pat .. "$"
+end
+
+-- Builds a matcher for one search term over the id/name/mesh/sourceMod fields.
+-- A term with `*`/`?` is a glob matched against the whole field; otherwise it is
+-- a plain substring. Returns nil for empty terms (they impose no constraint).
+local function makeTermMatcher(term)
+    -- Normalize both slash styles to `/` so mesh-path terms match regardless of
+    -- which the user types (mesh fields are normalized to match, below).
+    term = term:match("^%s*(.-)%s*$"):lower():gsub("\\", "/")
+    if term == "" then return nil end
+    if term:find("[%*%?]") then
+        local pat = globToPattern(term)
+        return function(id, name, mPath, sourceMod)
+            return id:match(pat) or name:match(pat) or mPath:match(pat) or sourceMod:match(pat)
+        end
+    end
+    return function(id, name, mPath, sourceMod)
+        return name:find(term, 1, true) or id:find(term, 1, true)
+            or mPath:find(term, 1, true) or sourceMod:find(term, 1, true)
+    end
+end
+
+-- Compiles a search pattern into a predicate `matcher(obj) -> bool`, the shared
+-- matching used by the preview search and the batch scan. The pattern is split on
+-- commas into AND-terms (an object must satisfy every term); any term may use
+-- `*`/`?` glob wildcards; each term is tested against the object's id, name, mesh
+-- path, and source mod. Returns nil when the pattern imposes no constraint (empty
+-- or all-whitespace) so callers can treat that as "match all".
+function this.compileMatcher(pattern)
+    pattern = pattern or ""
+    local termMatchers = {}
+    for term in (pattern .. ","):gmatch("([^,]*),") do
+        local matcher = makeTermMatcher(term)
+        if matcher then table.insert(termMatchers, matcher) end
+    end
+    if #termMatchers == 0 then return nil end
+
+    return function(obj)
+        local id = (obj.id or ""):lower()
+        local name = (obj.name or ""):lower()
+        local mPath = (obj.mesh or ""):lower():gsub("\\", "/")
+        local sourceMod = (obj.sourceMod or ""):lower()
+        for _, matcher in ipairs(termMatchers) do
+            if not matcher(id, name, mPath, sourceMod) then return false end
+        end
+        return true
+    end
+end
+
+-- Searches object records and resolves each into a subject. When params.sourceMod
+-- is set, matching is by exact source plugin. Otherwise the pattern is matched via
+-- compileMatcher (comma AND-terms + glob wildcards). One entry per base record:
+-- auto-generated per-placement actor instances are skipped, ids deduplicated.
 function this.search(params)
-    local pattern = (params.pattern or ""):lower()
+    local pattern = params.pattern or ""
     local pluginFilter = params.sourceMod
-    if pattern == "" and not pluginFilter then return {} end
+    if pattern:match("^%s*$") and not pluginFilter then return {} end
     local limit = params.limit or 100
+
+    local matcher = not pluginFilter and this.compileMatcher(pattern)
+    if not pluginFilter and not matcher then return {} end
 
     local matches = {}
     local seenIds = {}
@@ -75,11 +133,7 @@ function this.search(params)
                 if pluginFilter then
                     matched = (obj.sourceMod or "<unknown>") == pluginFilter
                 else
-                    local name = (obj.name or ""):lower()
-                    local mPath = mesh:lower()
-                    local sourceMod = (obj.sourceMod or ""):lower()
-                    matched = name:find(pattern, 1, true) or id:find(pattern, 1, true)
-                        or mPath:find(pattern, 1, true) or sourceMod:find(pattern, 1, true)
+                    matched = matcher(obj)
                 end
                 if matched and not seenIds[id] then
                     seenIds[id] = true

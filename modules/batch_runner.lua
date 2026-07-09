@@ -288,8 +288,8 @@ function this.renderBatch(params)
     params = params or {}
     local resolution = params.resolution or 2048
     local limit = params.limit or math.huge
-    local searchPattern = params.searchPattern
-    if searchPattern == "" then searchPattern = nil end
+    -- Shared matcher: comma AND-terms + glob wildcards (nil = match all).
+    local searchMatcher = subject_resolver.compileMatcher(params.searchPattern)
 
     if activeBatch then
         if params.onError then
@@ -345,16 +345,7 @@ function this.renderBatch(params)
 
             local mesh = not skip and obj.mesh
             if mesh and mesh:lower():match("%.nif$") then
-                local matches = true
-                if searchPattern then
-                    local name = (obj.name or ""):lower()
-                    local id = (obj.id or ""):lower()
-                    local mPath = mesh:lower()
-                    local sourceMod = (obj.sourceMod or ""):lower()
-                    local pat = searchPattern:lower()
-                    matches = (name:find(pat, 1, true) or id:find(pat, 1, true) or mPath:find(pat, 1, true) or
-                        sourceMod:find(pat, 1, true)) ~= nil
-                end
+                local matches = not searchMatcher or searchMatcher(obj)
 
                 if matches then
                     local meshKey = subject_resolver.normalizeMeshPath(mesh)

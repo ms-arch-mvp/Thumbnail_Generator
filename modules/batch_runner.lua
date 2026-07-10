@@ -48,6 +48,10 @@ end
 
 local activeBatch = nil
 
+function this.isBatchActive()
+    return activeBatch ~= nil
+end
+
 -- True if this subject's output file already exists (extension follows the
 -- batch output format, matching what render() writes).
 local function thumbnailExists(subject, meshPath)
@@ -151,7 +155,7 @@ local function onFrame()
     end
 
     local lastSubmittedIndexThisFrame = nil
-    while batch.activeJobsCount < poolSize and batch.nextIndex <= #batch.items and batch.completedCount + batch.activeJobsCount < batch.limit do
+    while batch.activeJobsCount < poolSize and batch.nextIndex <= #batch.items and batch.completedCount + batch.activeJobsCount < batch.remainingToRender do
         local slotIndex, slotObject = pool:acquire()
         if not slotIndex then
             break -- All buffer slots are currently busy, wait for next frame
@@ -252,12 +256,13 @@ local function onFrame()
         end
     end
 
-    local totalToRender = math.min(#batch.items, batch.limit)
+    -- Progress is the absolute position in the whole batch: items before the
+    -- resume point count as already done, so a resumed run reads e.g. 2400/5000.
     if batch.onProgress then
-        batch.onProgress(batch.completedCount, totalToRender)
+        batch.onProgress((batch.startIndex - 1) + batch.completedCount, batch.totalItems)
     end
 
-    if batch.completedCount >= totalToRender then
+    if batch.completedCount >= batch.remainingToRender then
         writeBatchLogs(batch)
 
         if batch.onComplete then
@@ -389,17 +394,31 @@ function this.renderBatch(params)
         return a.recordId < b.recordId
     end)
 
+    -- Resume point: 1-based index into the sorted batch. Items before it are
+    -- treated as already done (they still count toward the displayed total).
+    local startIndex = math.max(1, math.floor(params.startIndex or 1))
+    if startIndex > 1 and startIndex > #subjects then
+        if params.onError then
+            params.onError(string.format("Resume index %d exceeds batch size %d.", startIndex, #subjects))
+        end
+        return
+    end
+    -- Renders remaining this run; the display total stays the whole batch.
+    local remainingToRender = math.min(#subjects - (startIndex - 1), limit)
+
     local oldScene = camera.scene
 
     activeBatch = {
         items = subjects,
-        limit = limit,
+        totalItems = #subjects,
+        startIndex = startIndex,
+        remainingToRender = remainingToRender,
         resolution = resolution,
         dstWidth = params.dstWidth or params.dstResolution or 1024,
         dstHeight = params.dstHeight or params.dstResolution or 1024,
         forceOrtho = params.forceOrtho or false,
         outputFormat = settings.current.outputFormat,
-        nextIndex = 1,
+        nextIndex = startIndex,
         activeJobs = {},
         activeJobsCount = 0,
         completedCount = 0,

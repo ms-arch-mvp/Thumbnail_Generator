@@ -18,6 +18,14 @@ local function getColor(name)
     return tes3ui.getPalette(name)
 end
 
+-- Space cancels an in-progress batch (mirrors Export Cells). Registered once;
+-- no-ops unless a batch is running, so it's safe to leave always active.
+event.register(tes3.event.keyDown, function()
+    if render.isBatchActive() then
+        render.cancelBatch()
+    end
+end, { filter = tes3.scanCode.space })
+
 --   leaveMenuMode()/enterMenuMode() are both deferred to frame end, and a same-frame
 --   leave would win over the enter, dropping out of menu mode entirely.
 function this.closeMenu(keepMenuMode)
@@ -106,12 +114,16 @@ function this.openMenu()
     -- Fixed two-line block reserves the space so a one- vs two-line status message
     -- doesn't resize the menu (a bare label auto-sizes to its text and ignores height).
     local statusBlock = contents:createBlock()
+    statusBlock.flowDirection = tes3.flowDirection.topToBottom
     statusBlock.widthProportional = 1.0
     statusBlock.height = 44
     statusBlock.autoHeight = false
     statusBlock.borderBottom = 16
     local statusLabel = statusBlock:createLabel({ text = "" })
     statusLabel.color = getColor("normal_color")
+    -- Second line: the Space-to-cancel hint, shown only while a batch runs.
+    local hintLabel = statusBlock:createLabel({ text = "" })
+    hintLabel.color = getColor("disabled_color")
 
     local buttonBlock = contents:createBlock()
     buttonBlock.flowDirection = tes3.flowDirection.leftToRight
@@ -126,19 +138,12 @@ function this.openMenu()
     local btnFlagged = buttonBlock:createButton({ text = "Flagged" })
     btnFlagged.borderRight = 10
 
-    local btnCancel = buttonBlock:createButton({ text = "Cancel Batch" })
-    btnCancel.borderRight = 10
-    btnCancel.visible = false
-
     local btnPreview = buttonBlock:createButton({ text = "Preview" })
     btnPreview.borderRight = 10
 
     local btnClose = buttonBlock:createButton({ text = "Close" })
 
     btnClose:register(tes3.uiEvent.mouseClick, function() this.closeMenu() end)
-    btnCancel:register(tes3.uiEvent.mouseClick, function()
-        render.cancelBatch()
-    end)
 
     btnPreview:register(tes3.uiEvent.mouseClick, function()
         local selectedTypes = thumbnail_settings.getEnabledTypes()
@@ -194,19 +199,23 @@ function this.openMenu()
     -- Shared batch launch. `extra` carries the scope: Batch passes enabled types
     -- and the search pattern; Flagged passes flaggedOnly (all types, flagged file).
     local function startBatch(extra)
+        -- Drop keyboard focus so Space cancels the batch instead of typing a space.
+        tes3ui.acquireTextInput(nil)
         statusLabel.text = "Rendering batch... (Starting)"
         statusLabel.color = getColor("active_color")
+        hintLabel.text = "Space to cancel"
         btnRender.visible = false
         btnFlagged.visible = false
         btnPreview.visible = false
-        btnCancel.visible = true
+        btnClear.visible = false
         menu:updateLayout()
 
         local function restoreButtons()
+            hintLabel.text = ""
             btnRender.visible = true
             btnFlagged.visible = true
             btnPreview.visible = true
-            btnCancel.visible = false
+            btnClear.visible = (searchInput.text ~= "")
         end
 
         -- one-frame delay so the "Starting" label actually renders first
@@ -261,7 +270,15 @@ function this.openMenu()
             menu:updateLayout()
             return
         end
-        startBatch({ objectType = selectedTypes, searchPattern = searchInput.text })
+        -- A bare number resumes the full (unfiltered) batch from that 1-based
+        -- position; any other text is a search pattern starting from the top.
+        local text = searchInput.text or ""
+        local resumeIndex = tonumber(text:match("^%s*(%d+)%s*$"))
+        if resumeIndex then
+            startBatch({ objectType = selectedTypes, startIndex = resumeIndex })
+        else
+            startBatch({ objectType = selectedTypes, searchPattern = text })
+        end
     end)
 
     -- Renders only meshes listed in the flagged file, across all object types.

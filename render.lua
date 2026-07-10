@@ -65,6 +65,11 @@ function this.cancelBatch()
     return require("ThumbnailGenerator.modules.batch_runner").cancelBatch()
 end
 
+
+function this.isBatchActive()
+    return require("ThumbnailGenerator.modules.batch_runner").isBatchActive()
+end
+
 -- Scene construction/normalization lives in modules/scene_builder; re-exported
 -- here so every caller keeps going through render.
 this.createActorScene = scene_builder.createActorScene

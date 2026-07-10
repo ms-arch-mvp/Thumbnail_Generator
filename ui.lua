@@ -74,6 +74,7 @@ function this.openMenu()
     searchInput.widthProportional = 1.0
     searchInput.height = 30
     searchInput.borderAllSides = 5
+    searchInput.borderTop = 10
     searchInput.text = lastSearchPattern
     searchInput:register(tes3.uiEvent.mouseClick, function(e)
         tes3ui.acquireTextInput(e.source)

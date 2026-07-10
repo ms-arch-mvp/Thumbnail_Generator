@@ -29,16 +29,6 @@ else
     this.current = defaults
 end
 
--- Migration: older configs stored fit-to-frame under previewFitToFrame only.
--- Promote it to the global fitToFrame if the new key is missing.
-if this.current.fitToFrame == nil then
-    if this.current.previewFitToFrame ~= nil then
-        this.current.fitToFrame = this.current.previewFitToFrame
-    else
-        this.current.fitToFrame = true
-    end
-end
-
 -- Strips a leading "data files\" (any case / slash style) so getOutputFolder can
 -- re-add exactly one, regardless of what was typed into the folder setting.
 local function stripDataFilesPrefix(folder)

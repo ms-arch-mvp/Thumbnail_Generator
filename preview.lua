@@ -1,497 +1,69 @@
 -- Interactive 3D preview editor: drag to rotate, scroll to zoom, live sliders.
+-- UI and input wiring only; the 3D state and fit math live in
+-- modules/preview_scene, the subject pickers in modules/preview_pickers.
 local this = {}
 
 local render = require("ThumbnailGenerator.render")
 local subject_resolver = require("ThumbnailGenerator.modules.subject_resolver")
-local config = require("ThumbnailGenerator.modules.thumbnail_settings")
-
-
-local tempScene = nil
+local settings = require("ThumbnailGenerator.modules.thumbnail_settings")
+local preview_scene = require("ThumbnailGenerator.modules.preview_scene")
+local preview_pickers = require("ThumbnailGenerator.modules.preview_pickers")
 
 local backgroundMenuID = "ThumbnailGen:PreviewBackground"
 local controlsMenuID = "ThumbnailGen:PreviewControls"
-local selectMenuID = "ThumbnailGen:PreviewSelectMenu"
 
 -- Slider bounds for raw zoom values.
 local displayZoomMin = 0.05
 local displayZoomMax = 10
 
--- Deliberately further back than the neutral fit (1.0), since zoom here no
--- longer affects the actual render (see zoom=1.0 override below).
-local previewStartZoom = 2.0
-
 local function getColor(name)
     return tes3ui.getPalette(name)
 end
 
--- Dolly fit: MGE's vertex-lighting path projects particles through the pristine
--- frustum and ignores pokes, so flames detach from their mesh in the live view.
--- With this mode on, the default projection stays live and the subject is moved
--- to the distance where it fills that view instead; zoom becomes a real dolly.
-local function dollyFitEnabled()
-    return config.current.previewDollyFit == true
+-- The pickers report a choice via options.onPick; wire it to open() with the
+-- same options so nested pickers (plugin list -> selection list) keep working.
+local function withOpen(options)
+    options = options or {}
+    options.onPick = function(subjectOrObj)
+        this.open(subjectOrObj, options)
+    end
+    return options
 end
 
--- View depth of the rotation pivot -- the dolly-fit analogue of reading the
--- fitted frustum extents.
-local function currentViewDepth()
-    if not (tempScene and tempScene.rotationTargetPos) then return nil end
-    local cam = tempScene.camera
-    return (tempScene.rotationTargetPos - cam.worldTransform.translation)
-        :dot(cam.worldDirection)
-end
-
--- Moves the whole view rig (subject, pivot, pan base, lights, backdrop) so the
--- pivot sits at the given view depth, sliding along its own view ray so angular
--- placement is preserved. The dolly-fit analogue of scaling the frustum in place.
-local function restoreDollyDepth(depth)
-    local ts = tempScene
-    if not (ts and ts.rotationTargetPos and depth) then return end
-    local cam = ts.camera
-    local camPos = cam.worldTransform.translation
-    local current = (ts.rotationTargetPos - camPos):dot(cam.worldDirection)
-    if current <= 0 then return end
-
-    local pivot = camPos + (ts.rotationTargetPos - camPos) * (depth / current)
-    local delta = pivot - ts.rotationTargetPos
-    ts.rotationTargetPos = pivot
-    if ts.baseTranslation then
-        ts.baseTranslation = ts.baseTranslation + delta
-    end
-    ts.scene.translation = ts.scene.translation + delta
-    ts.scene:update()
-
-    -- The rig moves rigidly with the subject, so lighting is unchanged by depth.
-    for _, light in ipairs(ts.lights or {}) do
-        light.translation = light.translation + delta
-        light:update()
-    end
-
-    -- Backdrop keeps its padding behind the subject, re-covering the default view.
-    local base = ts.baseFrustum
-    local planeDepth = (ts.alphaPlane.translation - camPos):dot(cam.worldDirection)
-        + delta:dot(cam.worldDirection)
-    ts.alphaPlane.translation = camPos + cam.worldDirection * planeDepth
-    ts.alphaPlane.scale = math.max(10.0,
-        math.max(planeDepth * math.abs(base[2]), planeDepth * math.abs(base[3])) * 1.05 / 100)
-    ts.alphaPlane:update()
-
-    cam.scene:update()
-end
-
--- Compression along the camera view axis: I - (1-epsilon)*v*vT. Perspective
--- projection of a depth-flattened subject converges to an orthographic view of
--- the original, so this emulates ortho under dolly fit without touching the
--- projection (which MGE's vertex-lit particles refuse to follow). Symmetric, so
--- row/column order is irrelevant.
-local function viewFlattenMatrix(camera, epsilon)
-    local v = camera.worldDirection
-    local k = 1 - epsilon
-    return tes3matrix33.new(
-        1 - k * v.x * v.x, -k * v.x * v.y, -k * v.x * v.z,
-        -k * v.y * v.x, 1 - k * v.y * v.y, -k * v.y * v.z,
-        -k * v.z * v.x, -k * v.z * v.y, 1 - k * v.z * v.z
-    )
-end
-
--- Applies `tempScene.config` to the live preview scene/lights.
-local function updatePreviewScene(params)
-    if not tempScene or not tempScene.scene then return end
-    params = params or {}
-
-    local camera = tempScene.camera
-    local scene = tempScene.scene
-    local alphaPlane = tempScene.alphaPlane
-    local root = tempScene.root
-    local radius = tempScene.radius
-    local cfg = tempScene.config
-    local profile = tempScene.subject and tempScene.subject.profile
-    local rotationOnly = params.rotationOnly == true
-
-    -- Dolly-fit zoom: view depth scales linearly with zoom exactly as the frustum
-    -- extents do, so slide the rig instead of poking the frustum.
-    if params.zoomOnly and dollyFitEnabled() and not tempScene.orthoFrustum
-        and tempScene.lastFitZoom and tempScene.lastFitZoom > 0 then
-        local ratio = (cfg.zoom or 1) / tempScene.lastFitZoom
-        tempScene.lastFitZoom = cfg.zoom or 1
-        local depth = currentViewDepth()
-        if depth and depth > 0 then
-            restoreDollyDepth(depth * ratio)
-        end
-        return
-    end
-
-    -- Frustum extents scale linearly with zoom; scaling in place avoids the
-    -- re-fit snap after a drag (the drag fast path doesn't re-fit).
-    if params.zoomOnly and tempScene.orthoFrustum and tempScene.lastFitZoom and tempScene.lastFitZoom > 0 then
-        local ratio = (cfg.zoom or 1) / tempScene.lastFitZoom
-        local f = tempScene.orthoFrustum
-        f[1], f[2], f[3], f[4] = f[1] * ratio, f[2] * ratio, f[3] * ratio, f[4] * ratio
-        tempScene.lastFitZoom = cfg.zoom or 1
-        render.setFrustum(camera, f)
-
-        -- Keep the backdrop covering the (possibly wider) view.
-        local camPos = camera.worldTransform.translation
-        local planeDepth = (alphaPlane.translation - camPos):dot(camera.worldDirection)
-        alphaPlane.scale = math.max(10.0,
-            math.max(planeDepth * math.abs(f[2]), planeDepth * math.abs(f[3])) * 1.05 / 100)
-        alphaPlane:update()
-
-        camera.scene:update()
-        return
-    end
-
-    local targetPos
-    local dynamicRadius
-
-    -- Rotate around a fixed pivot -- a full re-fit here would wobble on every tick.
-    if rotationOnly and tempScene.rotationTargetPos and tempScene.rotationCenterLocal then
-        local finalRot = render.getSceneRotation({
-            camera = camera,
-            config = cfg,
-            profile = profile,
-        })
-        local sceneScale = scene.scale or 1
-
-        -- Keep the foreshortening flatten composed during drags (the camera is
-        -- static, so the cached view-axis compression stays valid across rotations).
-        if tempScene.viewFlatten then
-            finalRot = tempScene.viewFlatten * finalRot
-        end
-
-        scene.rotation = finalRot
-        scene.translation = tempScene.rotationTargetPos
-            - finalRot * (tempScene.rotationCenterLocal * sceneScale)
-        scene:update()
-
-        targetPos = tempScene.rotationTargetPos
-        dynamicRadius = tempScene.rotationRadius or radius
-    else
-        rotationOnly = false
-
-        -- Both modes poke a fitted frustum now; restore the pristine one before
-        -- fitting so a stale narrow frustum from the last fit can't clip the scene.
-        if tempScene.baseFrustum then
-            tempScene.orthoFrustum = nil
-            render.setFrustum(camera, tempScene.baseFrustum)
-        end
-
-        -- Fit the window aspect or the live view renders stretched; file renders stay square.
-        local vw, vh = tes3.getViewportSize()
-        local screenAspect = (vh and vh > 0) and (vw / vh) or 1
-
-        -- Dolly fit emulates ortho by flattening (below), so fit at the
-        -- perspective distance rather than the pointless ortho mega-dolly.
-        local dollyFit = dollyFitEnabled() and tempScene.baseFrustum ~= nil
-
-        local centerLocal
-        targetPos, dynamicRadius, centerLocal = render.positionScene({
-            scene = scene,
-            alphaPlane = alphaPlane,
-            camera = camera,
-            config = cfg,
-            radius = radius,
-            ortho = cfg.ortho == true and not dollyFit,
-            orthoBase = tempScene.baseFrustum,
-            targetAspect = screenAspect,
-            profile = profile,
-        })
-
-        tempScene.rotationTargetPos = targetPos:copy()
-        tempScene.rotationCenterLocal = centerLocal:copy()
-        tempScene.rotationRadius = dynamicRadius
-
-        -- Re-applied every frame: the engine rebuilds the frustum on
-        -- FOV/camera-mode/cell changes.
-        tempScene.orthoFrustum = render.getFrustum(camera)
-        tempScene.lastFitZoom = cfg.zoom or 1
-
-        -- Dolly fit: convert the fitted frustum into an equivalent camera distance
-        -- and keep the pristine projection live (the fitted/base extent ratio is
-        -- exactly the depth ratio that preserves apparent size).
-        tempScene.viewFlatten = nil
-        if dollyFit then
-            local fitted = tempScene.orthoFrustum
-            local base = tempScene.baseFrustum
-            local r = math.max(
-                (fitted[2] - fitted[1]) / (base[2] - base[1]),
-                (fitted[3] - fitted[4]) / (base[3] - base[4]))
-            local camPos = camera.worldTransform.translation
-            local depth0 = (targetPos - camPos):dot(camera.worldDirection)
-            if depth0 > 0 and r > 0 then
-                -- Keep small subjects clear of the game near plane.
-                r = math.max(r, (base[5] * 4 + dynamicRadius) / depth0)
-                local newTarget = camPos + (targetPos - camPos) * r
-                local delta = newTarget - targetPos
-                targetPos = newTarget
-                scene.translation = scene.translation + delta
-                scene:update()
-                tempScene.rotationTargetPos = targetPos:copy()
-
-                local planeDepth = (alphaPlane.translation - camPos):dot(camera.worldDirection)
-                    + delta:dot(camera.worldDirection)
-                alphaPlane.translation = camPos + camera.worldDirection * planeDepth
-                alphaPlane.scale = math.max(10.0,
-                    math.max(planeDepth * math.abs(base[2]), planeDepth * math.abs(base[3])) * 1.05 / 100)
-                alphaPlane:update()
-
-                render.setFrustum(camera, base)
-                -- Nothing poked: the per-frame re-poke and frustum zoom path stay off.
-                tempScene.orthoFrustum = nil
-
-                -- Match the render's foreshortening: flatten the subject about the
-                -- pivot so up-close proportions equal the render's distance-factor
-                -- look (ortho F~100 -> near-flat, perspective F=8 -> mild telephoto).
-                -- epsilon = depth/(factor*radius) makes the residual foreshortening
-                -- exactly (F+1)/(F-1), tracking the respective slider.
-                local factor = cfg.ortho == true
-                    and (config.current.orthoDistanceFactor or 100)
-                    or (cfg.perspectiveDistanceFactor or 8)
-                local depthNow = depth0 * r
-                local epsilon = depthNow
-                    / (math.max(dynamicRadius, 0.001) * math.max(factor, 1))
-                epsilon = math.max(0.01, math.min(1, epsilon))
-                if epsilon < 1 then
-                    local flatten = viewFlattenMatrix(camera, epsilon)
-                    scene.rotation = flatten * scene.rotation
-                    scene.translation = flatten * (scene.translation - targetPos) + targetPos
-                    scene:update()
-                    tempScene.viewFlatten = flatten
-                end
-            end
-        end
-    end
-
-    -- Lights don't need rebuilding for a pure rotation.
-    if not rotationOnly then
-        if tempScene.lights then
-            for _, light in ipairs(tempScene.lights) do
-                light:detachAffectedNode(scene)
-                root:detachChild(light)
-            end
-        end
-
-        tempScene.lights = render.addThumbnailLighting({
-            root = root,
-            scene = scene,
-            camera = camera,
-            targetPos = targetPos,
-            radius = dynamicRadius,
-            config = cfg,
-        })
-    end
-
-    -- Centered translation the WASD pan offsets from (zoomOnly keeps the prior one).
-    tempScene.baseTranslation = scene.translation:copy()
-
-    camera.scene:update()
-    camera.scene:updateEffects()
-    camera.scene:updateProperties()
-end
-
--- Shown when Preview is hit with an empty search: a button per source plugin
--- that has displayable records. Clicking one lists that plugin's records.
 function this.showPluginMenu(plugins, options)
-    local existing = tes3ui.findMenu(selectMenuID)
-    if existing then existing:destroy() end
-
-    local menu = tes3ui.createMenu({
-        id = selectMenuID,
-        fixedFrame = true,
-    })
-    menu.text = "Select Plugin to Browse"
-    menu.minWidth = 500
-    menu.minHeight = 600
-
-    local contents = menu:createBlock()
-    contents.flowDirection = tes3.flowDirection.topToBottom
-    contents.widthProportional = 1.0
-    contents.heightProportional = 1.0
-    contents.borderAllSides = 12
-
-    local title = contents:createLabel({ text = string.format("%d plugins with displayable records.", #plugins) })
-    title.borderBottom = 8
-    title.color = getColor("header_color")
-
-    local scroll = contents:createVerticalScrollPane()
-    scroll.widthProportional = 1.0
-    scroll.heightProportional = 1.0
-    scroll.borderBottom = 12
-    local scrollContent = scroll:getContentElement()
-    scrollContent.widthProportional = 1.0
-    scrollContent.autoHeight = true
-
-    for _, entry in ipairs(plugins) do
-        local btn = scrollContent:createButton({ text = string.format("%s  (%d)", entry.plugin, entry.count) })
-        btn.paddingTop = 8
-        btn.paddingBottom = 8
-        btn.borderBottom = 8
-        btn:register(tes3.uiEvent.mouseClick, function()
-            menu:destroy()
-            local matches = subject_resolver.search({ sourceMod = entry.plugin, types = options.types })
-            if #matches == 1 then
-                if options.closeMenu then options.closeMenu(true) end
-                this.open(matches[1].subject, options)
-            elseif #matches > 1 then
-                this.showSelectionMenu(matches, options)
-            end
-        end)
-    end
-
-    local btnClose = contents:createButton({ text = "Cancel" })
-    btnClose.childAlignX = 1.0
-    btnClose:register(tes3.uiEvent.mouseClick, function()
-        menu:destroy()
-    end)
-
-    menu:updateLayout()
-    scroll.widget:contentsChanged()
-    tes3ui.enterMenuMode(selectMenuID)
+    preview_pickers.showPluginMenu(plugins, withOpen(options))
 end
 
 function this.showSelectionMenu(matches, options)
-    local existing = tes3ui.findMenu(selectMenuID)
-    if existing then existing:destroy() end
-
-    local menu = tes3ui.createMenu({
-        id = selectMenuID,
-        fixedFrame = true,
-    })
-    menu.text = "Select Item to Preview"
-    menu.minWidth = 600
-    menu.minHeight = 600
-
-    local contents = menu:createBlock()
-    contents.flowDirection = tes3.flowDirection.topToBottom
-    contents.widthProportional = 1.0
-    contents.heightProportional = 1.0
-    contents.borderAllSides = 12
-
-    local title = contents:createLabel({ text = string.format("Found %d matching items.", #matches) })
-    title.borderBottom = 8
-    title.color = getColor("header_color")
-
-    local scroll = contents:createVerticalScrollPane()
-    scroll.widthProportional = 1.0
-    scroll.heightProportional = 1.0
-    scroll.borderBottom = 12
-    local scrollContent = scroll:getContentElement()
-    scrollContent.widthProportional = 1.0
-    scrollContent.autoHeight = true
-
-    for _, match in ipairs(matches) do
-        local entry = scrollContent:createBlock()
-        entry.flowDirection = tes3.flowDirection.topToBottom
-        entry.widthProportional = 1.0
-        entry.autoHeight = true
-        entry.borderBottom = 20
-
-        local btn = entry:createButton({ text = match.id })
-        btn.paddingTop = 8
-        btn.paddingBottom = 8
-        btn:register(tes3.uiEvent.mouseClick, function()
-            menu:destroy()
-            if options.closeMenu then
-                options.closeMenu(true)
-            end
-            this.open(match.subject or match.obj, options)
-        end)
-
-        -- Buttons inset their text by the frame border; nudge the labels right to match.
-        local labelIndent = 8
-
-        local typeLabel = entry:createLabel({ text = "Type: " .. match.typeName })
-        typeLabel.color = getColor("normal_color")
-        typeLabel.borderTop = 4
-        typeLabel.borderLeft = labelIndent
-        if match.name ~= "" then
-            local nameLabel = entry:createLabel({ text = "Name: " .. match.name })
-            nameLabel.color = getColor("normal_color")
-            nameLabel.borderTop = 4
-            nameLabel.borderLeft = labelIndent
-        end
-        local meshLabel = entry:createLabel({ text = "Mesh: " .. match.mesh })
-        meshLabel.color = getColor("disabled_color")
-        meshLabel.borderTop = 4
-        meshLabel.borderLeft = labelIndent
-    end
-
-    local btnClose = contents:createButton({ text = "Cancel" })
-    btnClose.childAlignX = 1.0
-    btnClose:register(tes3.uiEvent.mouseClick, function()
-        menu:destroy()
-    end)
-
-    menu:updateLayout()
-
-    scroll.widget:contentsChanged()
-
-    tes3ui.enterMenuMode(selectMenuID)
+    preview_pickers.showSelectionMenu(matches, withOpen(options))
 end
 
-
 function this.open(objOrSubject, options)
-    local camera = tes3.getCamera()
-    if not camera then
-        error("No camera found")
-    end
-
     local subject
     if type(objOrSubject) == "table" and objOrSubject.recordId then
         subject = objOrSubject
     else
         subject = subject_resolver.resolve(objOrSubject)
     end
-    local obj = subject.object
 
-    local oldScene = camera.scene
-
-    local scene = render.createRenderableScene(subject, subject.meshPath)
-
-    scene.translation = tes3vector3.new(0, 0, 0)
-    scene.rotation = tes3matrix33.identity()
-    scene:update()
-
-    local alphaPlane = tes3.loadMesh("..\\MWSE\\mods\\ThumbnailGenerator\\meshes\\alphaPlane.nif")
-    if not alphaPlane then
-        error("Failed to load ..\\MWSE\\mods\\ThumbnailGenerator\\meshes\\alphaPlane.nif")
-    end
-
-    local root = render.createRootNode(scene, alphaPlane)
-    camera.scene = root
-
-    local initialConfig = subject.config
-
-    -- Clone so editing doesn't touch the resolved config until explicitly saved.
-    local currentConfig = {}
-    for k, v in pairs(initialConfig) do
-        currentConfig[k] = v
-    end
-    currentConfig.roll = currentConfig.roll or 0
-    -- initialConfig.zoom is render-scale (from getDefaultConfig / config.current);
-    -- tempScene.config.zoom must be internal (2.0 / displayZoom).
-    -- Default config.lua zoom = 1.0 render-scale = 2.0 internal = display 1x (neutral fit).
-    currentConfig.zoom = (initialConfig.zoom or 1.0) * 2.0
-    -- Follow the MCM Orthographic (batch) toggle, so turning it off there opens
-    -- the preview in perspective too instead of always defaulting to ortho.
-    currentConfig.ortho = config.current.forceOrtho
-    -- Follow the MCM Fit to Frame toggle as the opening state.
-    currentConfig.fitToFrame = config.current.fitToFrame
+    -- Builds the camera scene and stashes everything the destroy handler restores.
+    local ts = preview_scene.begin(subject)
+    local camera = ts.camera
 
     -- Snapshot the opening camera values so the Reset button can restore them.
     local cameraDefaults = {
-        yaw = currentConfig.yaw,
-        pitch = currentConfig.pitch,
-        roll = currentConfig.roll,
-        zoom = currentConfig.zoom,
-        perspectiveDistanceFactor = currentConfig.perspectiveDistanceFactor,
+        yaw = ts.config.yaw,
+        pitch = ts.config.pitch,
+        roll = ts.config.roll,
+        zoom = ts.config.zoom,
+        perspectiveDistanceFactor = ts.config.perspectiveDistanceFactor,
     }
 
     local function isMouseOverUI()
         local cp = tes3.getCursorPosition()
         -- Suppress capture over the settings menu and the (modal) switch-search
         -- selection list. positionY is the menu's top edge; it extends down (-y).
-        for _, id in ipairs({ controlsMenuID, selectMenuID }) do
+        for _, id in ipairs({ controlsMenuID, preview_pickers.menuID }) do
             local menu = tes3ui.findMenu(id)
             if menu and menu.visible
                 and cp.x >= menu.positionX and cp.x <= (menu.positionX + menu.width)
@@ -511,80 +83,47 @@ function this.open(objOrSubject, options)
             or top.id == tes3ui.registerID(backgroundMenuID)
     end
 
-    tempScene = {
-        subject = subject,
-        obj = obj,
-        radius = scene.worldBoundRadius,
-        camera = camera,
-        oldScene = oldScene,
-        scene = scene,
-        alphaPlane = alphaPlane,
-        root = root,
-        config = currentConfig,
-        sliders = {},
-        labels = {},
-        -- WASD pan offsets, as a fraction of the frustum width/height.
-        -- Restored from the session so "Save to session" carries pan into the next preview.
-        panX = config.current.panX or 0,
-        panY = config.current.panY or 0,
-        baseFrustum = render.getFrustum(camera),
-        -- MGE pauses world rendering in menus; unpause for a live view.
-        mgePauseInMenus = mge.render.pauseRenderingInMenus,
-        -- The file render bypasses MGE post-processing, so the live view must
-        -- too. updateHDR alone only freezes auto-exposure, so both are needed.
-        mgeShaders = mge.render.shaders,
-        mgeHDR = mge.render.updateHDR,
-        -- The file render bypasses MGE, so its lighting is vertex-style; forcing
-        -- vertex for the live view matches that brightness (dolly fit keeps
-        -- flames working without per-pixel). Restored on close.
-        mgeLightingMode = mge.getLightingMode(),
-        -- Flames often sit under NiLODNode levels that switch off at the ortho
-        -- dolly distance; a tiny lodAdjust forces the highest-detail level.
-        lodAdjust = camera.lodAdjust,
-    }
-    mge.render.pauseRenderingInMenus = false
-    mge.render.shaders = false
-    mge.render.updateHDR = false
-    if config.current.previewForceVertexLighting then
-        mge.setLightingMode(mge.lightingMode.vertex)
+    -- True while this open()'s scene is still the live one; stale handlers from a
+    -- closed or switched-away preview must not touch the current state.
+    local function isCurrent()
+        return preview_scene.state == ts
     end
-    camera.lodAdjust = config.current.lodAdjust
 
     local function applyDragRotation(newYaw, newPitch)
         newPitch = math.max(-90, math.min(90, newPitch))
         newYaw = (newYaw + 180) % 360 - 180
 
-        tempScene.config.yaw = newYaw
-        tempScene.config.pitch = newPitch
+        ts.config.yaw = newYaw
+        ts.config.pitch = newPitch
 
         -- Sync the yaw/pitch slider thumbs + labels to the drag value.
-        if tempScene.sliders.yaw then
-            tempScene.sliders.yaw.widget.current = math.floor(newYaw + 180)
+        if ts.sliders.yaw then
+            ts.sliders.yaw.widget.current = math.floor(newYaw + 180)
         end
-        if tempScene.labels.yaw then
-            tempScene.labels.yaw.text = string.format("Yaw: %d deg", math.floor(newYaw))
+        if ts.labels.yaw then
+            ts.labels.yaw.text = string.format("Yaw: %d deg", math.floor(newYaw))
         end
-        if tempScene.sliders.pitch then
-            tempScene.sliders.pitch.widget.current = math.floor(newPitch + 90)
+        if ts.sliders.pitch then
+            ts.sliders.pitch.widget.current = math.floor(newPitch + 90)
         end
-        if tempScene.labels.pitch then
-            tempScene.labels.pitch.text = string.format("Pitch: %d deg", math.floor(newPitch))
+        if ts.labels.pitch then
+            ts.labels.pitch.text = string.format("Pitch: %d deg", math.floor(newPitch))
         end
 
-        updatePreviewScene({ rotationOnly = true })
+        preview_scene.update({ rotationOnly = true })
     end
 
     -- Sets zoom from a discrete input (mouse wheel), syncing the zoom slider.
     local function applyZoom(newDisplayZoom)
         newDisplayZoom = math.max(displayZoomMin, math.min(displayZoomMax, newDisplayZoom))
-        tempScene.config.zoom = 2.0 / newDisplayZoom
-        if tempScene.sliders.zoom then
-            tempScene.sliders.zoom.widget.current = math.floor((newDisplayZoom - displayZoomMin) / 0.05 + 0.5)
-            if tempScene.labels.zoom then
-                tempScene.labels.zoom.text = string.format("Zoom: %.2fx", newDisplayZoom)
+        ts.config.zoom = 2.0 / newDisplayZoom
+        if ts.sliders.zoom then
+            ts.sliders.zoom.widget.current = math.floor((newDisplayZoom - displayZoomMin) / 0.05 + 0.5)
+            if ts.labels.zoom then
+                ts.labels.zoom.text = string.format("Zoom: %.2fx", newDisplayZoom)
             end
         end
-        updatePreviewScene({ zoomOnly = true })
+        preview_scene.update({ zoomOnly = true })
     end
 
     -- Set true while the switch-search box has keyboard focus, to keep WASD panning
@@ -598,50 +137,49 @@ function this.open(objOrSubject, options)
     local function pollPan(dt)
         if searchFocused or not isPreviewActive() then return end
         local ic = tes3.worldController.inputController
-        local step = config.current.panSpeed * (tempScene.config.zoom or 1) * dt
+        local step = settings.current.panSpeed * (ts.config.zoom or 1) * dt
         local dx, dy = 0, 0
         -- D pans the view right (subject slides left), etc.
         if ic:isKeyDown(tes3.scanCode.d) then dx = dx - step end
         if ic:isKeyDown(tes3.scanCode.a) then dx = dx + step end
         if ic:isKeyDown(tes3.scanCode.w) then dy = dy - step end
         if ic:isKeyDown(tes3.scanCode.s) then dy = dy + step end
-        if dx ~= 0 then tempScene.panX = math.max(-panLimit, math.min(panLimit, tempScene.panX + dx)) end
-        if dy ~= 0 then tempScene.panY = math.max(-panLimit, math.min(panLimit, tempScene.panY + dy)) end
+        if dx ~= 0 then ts.panX = math.max(-panLimit, math.min(panLimit, ts.panX + dx)) end
+        if dy ~= 0 then ts.panY = math.max(-panLimit, math.min(panLimit, ts.panY + dy)) end
     end
 
     -- Drives right-drag rotation from the live cursor and holds the ortho frustum
     -- (engine only rebuilds it on FOV/mode/cell changes). Torn down in destroy.
     local function onPreviewFrame(e)
-        if not tempScene then return end
+        if not isCurrent() then return end
 
-        if tempScene.dragStartMouseX then
+        if ts.dragStartMouseX then
             local cp = tes3.getCursorPosition()
-            local dx = cp.x - tempScene.dragStartMouseX
-            local dy = cp.y - tempScene.dragStartMouseY
+            local dx = cp.x - ts.dragStartMouseX
+            local dy = cp.y - ts.dragStartMouseY
             local sensitivity = 0.5
             applyDragRotation(
-                tempScene.dragStartYaw + dx * sensitivity,
-                tempScene.dragStartPitch - dy * sensitivity
+                ts.dragStartYaw + dx * sensitivity,
+                ts.dragStartPitch - dy * sensitivity
             )
         end
 
         pollPan(e.delta or 0)
 
         -- Offset the subject from its centered base translation to pan (see pollPan).
-        if tempScene.baseTranslation and (tempScene.panX ~= 0 or tempScene.panY ~= 0) then
-            local cam = tempScene.camera
-            tempScene.scene.translation = tempScene.baseTranslation
-                + cam.worldRight * (tempScene.panX * tempScene.radius)
-                + cam.worldUp * (tempScene.panY * tempScene.radius)
-            tempScene.scene:update()
+        if ts.baseTranslation and (ts.panX ~= 0 or ts.panY ~= 0) then
+            local cam = ts.camera
+            ts.scene.translation = ts.baseTranslation
+                + cam.worldRight * (ts.panX * ts.radius)
+                + cam.worldUp * (ts.panY * ts.radius)
+            ts.scene:update()
         end
 
-        if tempScene.orthoFrustum then
-            render.setFrustum(tempScene.camera, tempScene.orthoFrustum)
+        if ts.orthoFrustum then
+            render.setFrustum(ts.camera, ts.orthoFrustum)
         end
     end
     event.register("enterFrame", onPreviewFrame)
-    tempScene.frameHandler = onPreviewFrame
 
     local bgMenu = tes3ui.createMenu({ id = backgroundMenuID, fixedFrame = true, modal = false })
     bgMenu.widthProportional = 1.0
@@ -655,48 +193,47 @@ function this.open(objOrSubject, options)
 
     local function onMouseButtonDown(e)
         -- In MWSE this uses 1 for the right mouse button.
-        if not tempScene or e.button ~= 1 or isMouseOverUI() or not isPreviewActive() then return end
+        if not isCurrent() or e.button ~= 1 or isMouseOverUI() or not isPreviewActive() then return end
         -- Clicking into the 3D view releases the search box, re-enabling WASD pan.
         tes3ui.acquireTextInput(nil)
         searchFocused = false
         local cp = tes3.getCursorPosition()
-        tempScene.dragStartMouseX = cp.x
-        tempScene.dragStartMouseY = cp.y
-        tempScene.dragStartYaw = tempScene.config.yaw
-        tempScene.dragStartPitch = tempScene.config.pitch
+        ts.dragStartMouseX = cp.x
+        ts.dragStartMouseY = cp.y
+        ts.dragStartYaw = ts.config.yaw
+        ts.dragStartPitch = ts.config.pitch
     end
     event.register(tes3.event.mouseButtonDown, onMouseButtonDown)
-    tempScene.mouseDownHandler = onMouseButtonDown
 
     local function onMouseButtonUp(e)
-        if not tempScene then return end
+        if not isCurrent() then return end
         if e.button == 1 then
-            tempScene.dragStartMouseX = nil
-            tempScene.dragStartMouseY = nil
-        elseif e.button == 0 and tempScene.pendingRefit then
+            ts.dragStartMouseX = nil
+            ts.dragStartMouseY = nil
+        elseif e.button == 0 and ts.pendingRefit then
             -- Left-release after a rotation slider: settle so the subject re-centers
             -- (rotationOnly drifts it off-center mid-move). The re-center is
             -- frustum-independent, so keep the pre-release framing afterwards -- a
             -- full re-fit would also re-tighten the crop and change the apparent zoom.
-            tempScene.pendingRefit = nil
-            local keepFrustum = tempScene.orthoFrustum
-            local keepDepth = not keepFrustum and dollyFitEnabled() and currentViewDepth() or nil
-            updatePreviewScene()
+            ts.pendingRefit = nil
+            local keepFrustum = ts.orthoFrustum
+            local keepDepth = not keepFrustum and preview_scene.dollyFitEnabled()
+                and preview_scene.currentViewDepth() or nil
+            preview_scene.update()
             if keepFrustum then
-                tempScene.orthoFrustum = keepFrustum
-                render.setFrustum(tempScene.camera, keepFrustum)
+                ts.orthoFrustum = keepFrustum
+                render.setFrustum(ts.camera, keepFrustum)
             elseif keepDepth then
-                restoreDollyDepth(keepDepth)
+                preview_scene.restoreDollyDepth(keepDepth)
             end
         end
     end
     event.register(tes3.event.mouseButtonUp, onMouseButtonUp)
-    tempScene.mouseUpHandler = onMouseButtonUp
 
     local zoomWheelStep = 0.10
     local function onMouseWheel(e)
-        if not tempScene or isMouseOverUI() or not isPreviewActive() then return end
-        local currentDisplayZoom = 2.0 / tempScene.config.zoom
+        if not isCurrent() or isMouseOverUI() or not isPreviewActive() then return end
+        local currentDisplayZoom = 2.0 / ts.config.zoom
         if e.delta > 0 then
             applyZoom(currentDisplayZoom + zoomWheelStep)
         elseif e.delta < 0 then
@@ -704,7 +241,6 @@ function this.open(objOrSubject, options)
         end
     end
     event.register(tes3.event.mouseWheel, onMouseWheel)
-    tempScene.mouseWheelHandler = onMouseWheel
 
     if tes3.mobilePlayer then
         tes3.mobilePlayer.controlsDisabled = true
@@ -727,50 +263,18 @@ function this.open(objOrSubject, options)
         controlsMenu.absolutePosAlignY = nil
     end
 
+    -- The sole cleanup path: unregister this instance's handlers, then let
+    -- preview_scene restore the frustum/MGE flags/camera scene.
     controlsMenu:register(tes3.uiEvent.destroy, function()
         controlsMenu:saveMenuPosition()
-        if tempScene then
-            local ts = tempScene
-            tempScene = nil
 
-            -- Engine won't rebuild the frustum on its own after an ortho session.
-            if ts.frameHandler then
-                event.unregister("enterFrame", ts.frameHandler)
-            end
-            if ts.mouseDownHandler then
-                event.unregister(tes3.event.mouseButtonDown, ts.mouseDownHandler)
-            end
-            if ts.mouseUpHandler then
-                event.unregister(tes3.event.mouseButtonUp, ts.mouseUpHandler)
-            end
-            if ts.mouseWheelHandler then
-                event.unregister(tes3.event.mouseWheel, ts.mouseWheelHandler)
-            end
-            if ts.baseFrustum then
-                render.setFrustum(ts.camera, ts.baseFrustum)
-            end
-            if ts.mgePauseInMenus ~= nil then
-                mge.render.pauseRenderingInMenus = ts.mgePauseInMenus
-            end
-            if ts.mgeShaders ~= nil then
-                mge.render.shaders = ts.mgeShaders
-            end
-            if ts.mgeHDR ~= nil then
-                mge.render.updateHDR = ts.mgeHDR
-            end
-            if ts.mgeLightingMode ~= nil then
-                mge.setLightingMode(ts.mgeLightingMode)
-            end
-            if ts.lodAdjust ~= nil then
-                ts.camera.lodAdjust = ts.lodAdjust
-            end
+        event.unregister("enterFrame", onPreviewFrame)
+        event.unregister(tes3.event.mouseButtonDown, onMouseButtonDown)
+        event.unregister(tes3.event.mouseButtonUp, onMouseButtonUp)
+        event.unregister(tes3.event.mouseWheel, onMouseWheel)
 
-            ts.camera.scene = ts.oldScene
-            if ts.camera.scene then
-                ts.camera.scene:update()
-                ts.camera.scene:updateEffects()
-                ts.camera.scene:updateProperties()
-            end
+        if isCurrent() then
+            preview_scene.finish()
 
             local bg = tes3ui.findMenu(backgroundMenuID)
             if bg then
@@ -815,8 +319,8 @@ function this.open(objOrSubject, options)
     -- Search to switch subject without leaving preview mode. Closing for a
     -- switch suppresses onExit so the batch menu doesn't reopen in between.
     local function closeForSwitch()
-        if tempScene then
-            tempScene.suppressExit = true
+        if isCurrent() then
+            ts.suppressExit = true
         end
         local menu = tes3ui.findMenu(controlsMenuID)
         if menu then
@@ -849,7 +353,7 @@ function this.open(objOrSubject, options)
         tes3ui.acquireTextInput(nil)
         searchFocused = false
 
-        local types = config.getEnabledTypes()
+        local types = settings.getEnabledTypes()
         local switchOptions = {
             types = types,
             closeMenu = closeForSwitch,
@@ -896,7 +400,7 @@ function this.open(objOrSubject, options)
     scrollContent.widthProportional = 1.0
     scrollContent.autoHeight = true
 
-    -- key -> function that syncs the slider widget + label from tempScene.config.
+    -- key -> function that syncs the slider widget + label from ts.config.
     local sliderRefreshers = {}
 
     local function addSettingSlider(params)
@@ -915,11 +419,11 @@ function this.open(objOrSubject, options)
         container.autoHeight = true
         container.borderBottom = 8
 
-        local currentVal = tempScene.config[key]
+        local currentVal = ts.config[key]
         local displayVal = invert and (2.0 / currentVal) or currentVal
         local displayLabel = container:createLabel({ text = toTextFn(displayVal) })
         displayLabel.color = getColor("normal_color")
-        tempScene.labels[key] = displayLabel
+        ts.labels[key] = displayLabel
 
         local sliderMax = math.floor((maxVal - minVal) / stepVal + 0.5)
         local sliderCurrent = math.floor((displayVal - minVal) / stepVal + 0.5)
@@ -931,7 +435,7 @@ function this.open(objOrSubject, options)
             jump = math.max(1, math.floor(sliderMax / 10)),
         })
         slider.width = 280
-        tempScene.sliders[key] = slider
+        ts.sliders[key] = slider
 
         local rotationOnly = key == "yaw" or key == "pitch" or key == "roll"
         local lastRaw = sliderCurrent
@@ -940,21 +444,21 @@ function this.open(objOrSubject, options)
             if raw == lastRaw then return end
             lastRaw = raw
             local shown = minVal + raw * stepVal
-            tempScene.config[key] = invert and (2.0 / shown) or shown
+            ts.config[key] = invert and (2.0 / shown) or shown
             displayLabel.text = toTextFn(shown)
-            updatePreviewScene({ rotationOnly = rotationOnly, zoomOnly = key == "zoom" })
+            preview_scene.update({ rotationOnly = rotationOnly, zoomOnly = key == "zoom" })
             -- Rotation skips fitting mid-move to stay smooth; flag a settle-fit on release.
-            if rotationOnly then tempScene.pendingRefit = true end
+            if rotationOnly then ts.pendingRefit = true end
         end
 
         -- mouseStillPressed fires every held frame, giving the live drag update.
         slider:register(tes3.uiEvent.partScrollBarChanged, applyFromSlider)
         slider:register(tes3.uiEvent.mouseStillPressed, applyFromSlider)
 
-        -- Pushes the current tempScene.config value back onto the widget + label
+        -- Pushes the current ts.config value back onto the widget + label
         -- (used by the Reset button, which sets config directly).
         sliderRefreshers[key] = function()
-            local dv = invert and (2.0 / tempScene.config[key]) or tempScene.config[key]
+            local dv = invert and (2.0 / ts.config[key]) or ts.config[key]
             lastRaw = math.floor((dv - minVal) / stepVal + 0.5)
             slider.widget.current = lastRaw
             displayLabel.text = toTextFn(dv)
@@ -1029,17 +533,17 @@ function this.open(objOrSubject, options)
     local orthoToggleLabel = orthoRow:createLabel({ text = "Orthographic:" })
     orthoToggleLabel.color = getColor("normal_color")
 
-    local orthoToggleBtn = orthoRow:createButton({ text = tempScene.config.ortho and "On" or "Off" })
+    local orthoToggleBtn = orthoRow:createButton({ text = ts.config.ortho and "On" or "Off" })
     local function updateOrthoToggleVisual()
         -- Blue highlights the non-default (perspective); ortho is the default look.
-        orthoToggleBtn.widget.state = tempScene.config.ortho and tes3.uiState.normal or tes3.uiState.active
-        orthoToggleBtn.text = tempScene.config.ortho and "On" or "Off"
+        orthoToggleBtn.widget.state = ts.config.ortho and tes3.uiState.normal or tes3.uiState.active
+        orthoToggleBtn.text = ts.config.ortho and "On" or "Off"
     end
     updateOrthoToggleVisual()
     orthoToggleBtn:register(tes3.uiEvent.mouseClick, function()
-        tempScene.config.ortho = not tempScene.config.ortho
+        ts.config.ortho = not ts.config.ortho
         updateOrthoToggleVisual()
-        updatePreviewScene()
+        preview_scene.update()
         controlsMenu:updateLayout()
     end)
 
@@ -1054,15 +558,15 @@ function this.open(objOrSubject, options)
     local fitToggleLabel = fitRow:createLabel({ text = "Fit to Frame:" })
     fitToggleLabel.color = getColor("normal_color")
 
-    local fitToggleBtn = fitRow:createButton({ text = tempScene.config.fitToFrame and "On" or "Off" })
+    local fitToggleBtn = fitRow:createButton({ text = ts.config.fitToFrame and "On" or "Off" })
     local function updateFitToggleVisual()
         -- Blue highlights the non-default (fit off); fit is the default look.
-        fitToggleBtn.widget.state = tempScene.config.fitToFrame and tes3.uiState.normal or tes3.uiState.active
-        fitToggleBtn.text = tempScene.config.fitToFrame and "On" or "Off"
+        fitToggleBtn.widget.state = ts.config.fitToFrame and tes3.uiState.normal or tes3.uiState.active
+        fitToggleBtn.text = ts.config.fitToFrame and "On" or "Off"
     end
     updateFitToggleVisual()
     fitToggleBtn:register(tes3.uiEvent.mouseClick, function()
-        tempScene.config.fitToFrame = not tempScene.config.fitToFrame
+        ts.config.fitToFrame = not ts.config.fitToFrame
         updateFitToggleVisual()
         controlsMenu:updateLayout()
     end)
@@ -1086,7 +590,7 @@ function this.open(objOrSubject, options)
     updateBgToggleVisual()
     bgToggleBtn:register(tes3.uiEvent.mouseClick, function()
         bgWhite = not bgWhite
-        render.setPlaneColor(tempScene.alphaPlane, bgWhite and 1 or 0)
+        render.setPlaneColor(ts.alphaPlane, bgWhite and 1 or 0)
         updateBgToggleVisual()
         controlsMenu:updateLayout()
     end)
@@ -1101,16 +605,17 @@ function this.open(objOrSubject, options)
     -- axis the batch rotation exceptions use. Re-centers but keeps the framing.
     local rotate90Btn = camButtonRow:createButton({ text = "Rotate 90" })
     rotate90Btn:register(tes3.uiEvent.mouseClick, function()
-        tempScene.config.yaw = (tempScene.config.yaw - 90 + 180) % 360 - 180
+        ts.config.yaw = (ts.config.yaw - 90 + 180) % 360 - 180
         if sliderRefreshers.yaw then sliderRefreshers.yaw() end
-        local keepFrustum = tempScene.orthoFrustum
-        local keepDepth = not keepFrustum and dollyFitEnabled() and currentViewDepth() or nil
-        updatePreviewScene()
+        local keepFrustum = ts.orthoFrustum
+        local keepDepth = not keepFrustum and preview_scene.dollyFitEnabled()
+            and preview_scene.currentViewDepth() or nil
+        preview_scene.update()
         if keepFrustum then
-            tempScene.orthoFrustum = keepFrustum
-            render.setFrustum(tempScene.camera, keepFrustum)
+            ts.orthoFrustum = keepFrustum
+            render.setFrustum(ts.camera, keepFrustum)
         elseif keepDepth then
-            restoreDollyDepth(keepDepth)
+            preview_scene.restoreDollyDepth(keepDepth)
         end
         controlsMenu:updateLayout()
     end)
@@ -1120,12 +625,12 @@ function this.open(objOrSubject, options)
     resetBtn.borderLeft = 12
     resetBtn:register(tes3.uiEvent.mouseClick, function()
         for key, value in pairs(cameraDefaults) do
-            tempScene.config[key] = value
+            ts.config[key] = value
             if sliderRefreshers[key] then sliderRefreshers[key]() end
         end
-        tempScene.panX = 0
-        tempScene.panY = 0
-        updatePreviewScene()
+        ts.panX = 0
+        ts.panY = 0
+        preview_scene.update()
         controlsMenu:updateLayout()
     end)
 
@@ -1211,47 +716,47 @@ function this.open(objOrSubject, options)
     btnSaveSession.widthProportional = 1.0
     btnSaveSession.borderRight = 6
     btnSaveSession:register(tes3.uiEvent.mouseClick, function()
-        local cfg = tempScene.config
+        local cfg = ts.config
         local keys = { "yaw", "pitch", "roll", "perspectiveDistanceFactor",
             "keyDimmer", "keyX", "keyY", "keyZ", "fillDimmer", "ambientScale", "diffuseScale" }
         for _, key in ipairs(keys) do
-            config.current[key] = cfg[key]
+            settings.current[key] = cfg[key]
         end
         -- cfg.zoom is internal (2.0 / displayZoom); the render pipeline expects
         -- the normalised scale where 1.0 = neutral, matching config.lua's default.
         -- The Render button uses the same /2.0 conversion.
-        config.current.zoom = cfg.zoom / 2.0
-        config.current.panX = tempScene.panX or 0
-        config.current.panY = tempScene.panY or 0
-        config.current.forceOrtho = cfg.ortho
-        config.current.fitToFrame = cfg.fitToFrame
+        settings.current.zoom = cfg.zoom / 2.0
+        settings.current.panX = ts.panX or 0
+        settings.current.panY = ts.panY or 0
+        settings.current.forceOrtho = cfg.ortho
+        settings.current.fitToFrame = cfg.fitToFrame
         tes3.messageBox("Saved preview camera + lighting for this session's batch renders.")
     end)
 
     local btnResetSession = sessionRow:createButton({ text = "Reset session" })
     btnResetSession.widthProportional = 1.0
     btnResetSession:register(tes3.uiEvent.mouseClick, function()
-        config.resetSessionCamera()
+        settings.resetSessionCamera()
         -- Snap the live preview's camera + lighting back to those defaults too, so
         -- the reset is visible (the ortho toggle is left as-is).
-        local defaults = config.getDefaultConfig(subject.objectType)
+        local defaults = settings.getDefaultConfig(subject.objectType)
         for _, key in ipairs({ "yaw", "pitch", "roll", "perspectiveDistanceFactor",
             "keyDimmer", "keyX", "keyY", "keyZ", "fillDimmer", "ambientScale", "diffuseScale" }) do
-            tempScene.config[key] = defaults[key]
+            ts.config[key] = defaults[key]
             if sliderRefreshers[key] then sliderRefreshers[key]() end
         end
-        -- defaults.zoom is render-scale (1.0 = neutral); tempScene.config.zoom is
+        -- defaults.zoom is render-scale (1.0 = neutral); ts.config.zoom is
         -- internal (2.0 / displayZoom), so convert back.
-        tempScene.config.zoom = (defaults.zoom or 1.0) * 2.0
+        ts.config.zoom = (defaults.zoom or 1.0) * 2.0
         if sliderRefreshers.zoom then sliderRefreshers.zoom() end
-        tempScene.panX = config.current.panX or 0
-        tempScene.panY = config.current.panY or 0
+        ts.panX = settings.current.panX or 0
+        ts.panY = settings.current.panY or 0
         -- Restore fitToFrame and ortho to the session defaults and refresh buttons.
-        tempScene.config.fitToFrame = config.current.fitToFrame
+        ts.config.fitToFrame = settings.current.fitToFrame
         updateFitToggleVisual()
-        tempScene.config.ortho = config.current.forceOrtho
+        ts.config.ortho = settings.current.forceOrtho
         updateOrthoToggleVisual()
-        updatePreviewScene()
+        preview_scene.update()
         controlsMenu:updateLayout()
         tes3.messageBox("Reset session + preview camera and lighting to the loaded defaults.")
     end)
@@ -1275,33 +780,33 @@ function this.open(objOrSubject, options)
                 subject = subject,
                 meshPath = mPath,
                 outputPath = outputPath,
-                yaw = tempScene.config.yaw,
-                pitch = tempScene.config.pitch,
-                roll = tempScene.config.roll,
+                yaw = ts.config.yaw,
+                pitch = ts.config.pitch,
+                roll = ts.config.roll,
                 -- Fit-to-frame re-crops to content, so zoom is moot there; with it
                 -- off, honor the live zoom so a manual crop carries into the render.
-                -- tempScene.config.zoom is internal (2.0/displayZoom); computeOrthoFit
+                -- ts.config.zoom is internal (2.0/displayZoom); computeOrthoFit
                 -- expects a value where higher = larger frustum = smaller object, so
                 -- divide by 2.0 to normalise: default internal 2.0 -> render zoom 1.0.
-                zoom = tempScene.config.fitToFrame and 1.0 or (tempScene.config.zoom / 2.0),
-                perspectiveDistanceFactor = tempScene.config.perspectiveDistanceFactor,
-                keyDimmer = tempScene.config.keyDimmer,
-                keyX = tempScene.config.keyX,
-                keyY = tempScene.config.keyY,
-                keyZ = tempScene.config.keyZ,
-                fillDimmer = tempScene.config.fillDimmer,
-                ambientScale = tempScene.config.ambientScale,
-                diffuseScale = tempScene.config.diffuseScale,
-                ortho = tempScene.config.ortho,
+                zoom = ts.config.fitToFrame and 1.0 or (ts.config.zoom / 2.0),
+                perspectiveDistanceFactor = ts.config.perspectiveDistanceFactor,
+                keyDimmer = ts.config.keyDimmer,
+                keyX = ts.config.keyX,
+                keyY = ts.config.keyY,
+                keyZ = ts.config.keyZ,
+                fillDimmer = ts.config.fillDimmer,
+                ambientScale = ts.config.ambientScale,
+                diffuseScale = ts.config.diffuseScale,
+                ortho = ts.config.ortho,
                 -- pristine frustum, in case the live preview already narrowed it
-                orthoBase = tempScene.baseFrustum,
-                resolution = config.current.previewRenderResolution,
-                dstResolution = config.current.previewOutputResolution,
-                outputFormat = config.current.previewOutputFormat,
-                fitToFrame = tempScene.config.fitToFrame,
+                orthoBase = ts.baseFrustum,
+                resolution = settings.current.previewRenderResolution,
+                dstResolution = settings.current.previewOutputResolution,
+                outputFormat = settings.current.previewOutputFormat,
+                fitToFrame = ts.config.fitToFrame,
                 -- WASD pan carries the crop into the render (moot when fit is on).
-                panX = tempScene.panX,
-                panY = tempScene.panY,
+                panX = ts.panX,
+                panY = ts.panY,
                 -- Never write an empty preview render, regardless of the batch toggle.
                 skipEmpty = true,
                 keepSceneActive = false,
@@ -1319,14 +824,14 @@ function this.open(objOrSubject, options)
             tes3.messageBox("Error rendering: " .. tostring(result))
         end
 
-        -- Reattach and re-poke only -- a full updatePreviewScene() re-fit would
+        -- Reattach and re-poke only -- a full preview_scene.update() re-fit would
         -- visibly snap after a drag/zoom fast path.
-        camera.scene = tempScene.root
+        camera.scene = ts.root
         camera.scene:update()
         camera.scene:updateEffects()
         camera.scene:updateProperties()
-        if tempScene.orthoFrustum then
-            render.setFrustum(camera, tempScene.orthoFrustum)
+        if ts.orthoFrustum then
+            render.setFrustum(camera, ts.orthoFrustum)
         end
     end)
 
@@ -1336,7 +841,7 @@ function this.open(objOrSubject, options)
         controlsMenu:destroy()
     end)
 
-    updatePreviewScene()
+    preview_scene.update()
 
     bgMenu:updateLayout()
     controlsMenu:updateLayout()

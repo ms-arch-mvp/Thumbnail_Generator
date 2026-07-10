@@ -93,7 +93,7 @@ function this.match(normalizedMeshPath)
                 file = entry.file,
                 source = entry.source,
                 provenance = string.format(
-                    "legacy mesh exception: rotate %d (fragment '%s' in dir '%s', %s)",
+                    "mesh exception: rotate %d (fragment '%s' in dir '%s', %s)",
                     entry.rotation, entry.file, entry.dir == "" and "<root>" or entry.dir, entry.source),
             }
         end
@@ -105,7 +105,7 @@ end
 
 if not this.loadFromFile(this.filePath) then
     mwse.log(string.format(
-        "[Thumbnail Generator] rotation_exceptions.lua: could not open '%s' -- no legacy rotation exceptions loaded.",
+        "[Thumbnail Generator] rotation_exceptions.lua: could not open '%s' -- no rotation exceptions loaded.",
         this.filePath))
 end
 

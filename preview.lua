@@ -24,6 +24,76 @@ local function getColor(name)
     return tes3ui.getPalette(name)
 end
 
+-- Dolly fit: MGE's vertex-lighting path projects particles through the pristine
+-- frustum and ignores pokes, so flames detach from their mesh in the live view.
+-- With this mode on, the default projection stays live and the subject is moved
+-- to the distance where it fills that view instead; zoom becomes a real dolly.
+local function dollyFitEnabled()
+    return config.current.previewDollyFit == true
+end
+
+-- View depth of the rotation pivot -- the dolly-fit analogue of reading the
+-- fitted frustum extents.
+local function currentViewDepth()
+    if not (tempScene and tempScene.rotationTargetPos) then return nil end
+    local cam = tempScene.camera
+    return (tempScene.rotationTargetPos - cam.worldTransform.translation)
+        :dot(cam.worldDirection)
+end
+
+-- Moves the whole view rig (subject, pivot, pan base, lights, backdrop) so the
+-- pivot sits at the given view depth, sliding along its own view ray so angular
+-- placement is preserved. The dolly-fit analogue of scaling the frustum in place.
+local function restoreDollyDepth(depth)
+    local ts = tempScene
+    if not (ts and ts.rotationTargetPos and depth) then return end
+    local cam = ts.camera
+    local camPos = cam.worldTransform.translation
+    local current = (ts.rotationTargetPos - camPos):dot(cam.worldDirection)
+    if current <= 0 then return end
+
+    local pivot = camPos + (ts.rotationTargetPos - camPos) * (depth / current)
+    local delta = pivot - ts.rotationTargetPos
+    ts.rotationTargetPos = pivot
+    if ts.baseTranslation then
+        ts.baseTranslation = ts.baseTranslation + delta
+    end
+    ts.scene.translation = ts.scene.translation + delta
+    ts.scene:update()
+
+    -- The rig moves rigidly with the subject, so lighting is unchanged by depth.
+    for _, light in ipairs(ts.lights or {}) do
+        light.translation = light.translation + delta
+        light:update()
+    end
+
+    -- Backdrop keeps its padding behind the subject, re-covering the default view.
+    local base = ts.baseFrustum
+    local planeDepth = (ts.alphaPlane.translation - camPos):dot(cam.worldDirection)
+        + delta:dot(cam.worldDirection)
+    ts.alphaPlane.translation = camPos + cam.worldDirection * planeDepth
+    ts.alphaPlane.scale = math.max(10.0,
+        math.max(planeDepth * math.abs(base[2]), planeDepth * math.abs(base[3])) * 1.05 / 100)
+    ts.alphaPlane:update()
+
+    cam.scene:update()
+end
+
+-- Compression along the camera view axis: I - (1-epsilon)*v*vT. Perspective
+-- projection of a depth-flattened subject converges to an orthographic view of
+-- the original, so this emulates ortho under dolly fit without touching the
+-- projection (which MGE's vertex-lit particles refuse to follow). Symmetric, so
+-- row/column order is irrelevant.
+local function viewFlattenMatrix(camera, epsilon)
+    local v = camera.worldDirection
+    local k = 1 - epsilon
+    return tes3matrix33.new(
+        1 - k * v.x * v.x, -k * v.x * v.y, -k * v.x * v.z,
+        -k * v.y * v.x, 1 - k * v.y * v.y, -k * v.y * v.z,
+        -k * v.z * v.x, -k * v.z * v.y, 1 - k * v.z * v.z
+    )
+end
+
 -- Applies `tempScene.config` to the live preview scene/lights.
 local function updatePreviewScene(params)
     if not tempScene or not tempScene.scene then return end
@@ -37,6 +107,19 @@ local function updatePreviewScene(params)
     local cfg = tempScene.config
     local profile = tempScene.subject and tempScene.subject.profile
     local rotationOnly = params.rotationOnly == true
+
+    -- Dolly-fit zoom: view depth scales linearly with zoom exactly as the frustum
+    -- extents do, so slide the rig instead of poking the frustum.
+    if params.zoomOnly and dollyFitEnabled() and not tempScene.orthoFrustum
+        and tempScene.lastFitZoom and tempScene.lastFitZoom > 0 then
+        local ratio = (cfg.zoom or 1) / tempScene.lastFitZoom
+        tempScene.lastFitZoom = cfg.zoom or 1
+        local depth = currentViewDepth()
+        if depth and depth > 0 then
+            restoreDollyDepth(depth * ratio)
+        end
+        return
+    end
 
     -- Frustum extents scale linearly with zoom; scaling in place avoids the
     -- re-fit snap after a drag (the drag fast path doesn't re-fit).
@@ -70,6 +153,12 @@ local function updatePreviewScene(params)
         })
         local sceneScale = scene.scale or 1
 
+        -- Keep the foreshortening flatten composed during drags (the camera is
+        -- static, so the cached view-axis compression stays valid across rotations).
+        if tempScene.viewFlatten then
+            finalRot = tempScene.viewFlatten * finalRot
+        end
+
         scene.rotation = finalRot
         scene.translation = tempScene.rotationTargetPos
             - finalRot * (tempScene.rotationCenterLocal * sceneScale)
@@ -91,6 +180,10 @@ local function updatePreviewScene(params)
         local vw, vh = tes3.getViewportSize()
         local screenAspect = (vh and vh > 0) and (vw / vh) or 1
 
+        -- Dolly fit emulates ortho by flattening (below), so fit at the
+        -- perspective distance rather than the pointless ortho mega-dolly.
+        local dollyFit = dollyFitEnabled() and tempScene.baseFrustum ~= nil
+
         local centerLocal
         targetPos, dynamicRadius, centerLocal = render.positionScene({
             scene = scene,
@@ -98,7 +191,7 @@ local function updatePreviewScene(params)
             camera = camera,
             config = cfg,
             radius = radius,
-            ortho = cfg.ortho == true,
+            ortho = cfg.ortho == true and not dollyFit,
             orthoBase = tempScene.baseFrustum,
             targetAspect = screenAspect,
             profile = profile,
@@ -112,6 +205,61 @@ local function updatePreviewScene(params)
         -- FOV/camera-mode/cell changes.
         tempScene.orthoFrustum = render.getFrustum(camera)
         tempScene.lastFitZoom = cfg.zoom or 1
+
+        -- Dolly fit: convert the fitted frustum into an equivalent camera distance
+        -- and keep the pristine projection live (the fitted/base extent ratio is
+        -- exactly the depth ratio that preserves apparent size).
+        tempScene.viewFlatten = nil
+        if dollyFit then
+            local fitted = tempScene.orthoFrustum
+            local base = tempScene.baseFrustum
+            local r = math.max(
+                (fitted[2] - fitted[1]) / (base[2] - base[1]),
+                (fitted[3] - fitted[4]) / (base[3] - base[4]))
+            local camPos = camera.worldTransform.translation
+            local depth0 = (targetPos - camPos):dot(camera.worldDirection)
+            if depth0 > 0 and r > 0 then
+                -- Keep small subjects clear of the game near plane.
+                r = math.max(r, (base[5] * 4 + dynamicRadius) / depth0)
+                local newTarget = camPos + (targetPos - camPos) * r
+                local delta = newTarget - targetPos
+                targetPos = newTarget
+                scene.translation = scene.translation + delta
+                scene:update()
+                tempScene.rotationTargetPos = targetPos:copy()
+
+                local planeDepth = (alphaPlane.translation - camPos):dot(camera.worldDirection)
+                    + delta:dot(camera.worldDirection)
+                alphaPlane.translation = camPos + camera.worldDirection * planeDepth
+                alphaPlane.scale = math.max(10.0,
+                    math.max(planeDepth * math.abs(base[2]), planeDepth * math.abs(base[3])) * 1.05 / 100)
+                alphaPlane:update()
+
+                render.setFrustum(camera, base)
+                -- Nothing poked: the per-frame re-poke and frustum zoom path stay off.
+                tempScene.orthoFrustum = nil
+
+                -- Match the render's foreshortening: flatten the subject about the
+                -- pivot so up-close proportions equal the render's distance-factor
+                -- look (ortho F~100 -> near-flat, perspective F=8 -> mild telephoto).
+                -- epsilon = depth/(factor*radius) makes the residual foreshortening
+                -- exactly (F+1)/(F-1), tracking the respective slider.
+                local factor = cfg.ortho == true
+                    and (config.current.orthoDistanceFactor or 100)
+                    or (cfg.perspectiveDistanceFactor or 8)
+                local depthNow = depth0 * r
+                local epsilon = depthNow
+                    / (math.max(dynamicRadius, 0.001) * math.max(factor, 1))
+                epsilon = math.max(0.01, math.min(1, epsilon))
+                if epsilon < 1 then
+                    local flatten = viewFlattenMatrix(camera, epsilon)
+                    scene.rotation = flatten * scene.rotation
+                    scene.translation = flatten * (scene.translation - targetPos) + targetPos
+                    scene:update()
+                    tempScene.viewFlatten = flatten
+                end
+            end
+        end
     end
 
     -- Lights don't need rebuilding for a pure rotation.
@@ -386,8 +534,9 @@ function this.open(objOrSubject, options)
         -- too. updateHDR alone only freezes auto-exposure, so both are needed.
         mgeShaders = mge.render.shaders,
         mgeHDR = mge.render.updateHDR,
-        -- Candle flames (and similar particles) only render under MGE's per-pixel
-        -- path; force it on for the live view when enabled, and restore on close.
+        -- The file render bypasses MGE, so its lighting is vertex-style; forcing
+        -- vertex for the live view matches that brightness (dolly fit keeps
+        -- flames working without per-pixel). Restored on close.
         mgeLightingMode = mge.getLightingMode(),
         -- Flames often sit under NiLODNode levels that switch off at the ortho
         -- dolly distance; a tiny lodAdjust forces the highest-detail level.
@@ -396,8 +545,8 @@ function this.open(objOrSubject, options)
     mge.render.pauseRenderingInMenus = false
     mge.render.shaders = false
     mge.render.updateHDR = false
-    if config.current.previewForcePerPixel then
-        mge.setLightingMode(mge.lightingMode.perPixel)
+    if config.current.previewForceVertexLighting then
+        mge.setLightingMode(mge.lightingMode.vertex)
     end
     camera.lodAdjust = config.current.lodAdjust
 
@@ -531,10 +680,13 @@ function this.open(objOrSubject, options)
             -- full re-fit would also re-tighten the crop and change the apparent zoom.
             tempScene.pendingRefit = nil
             local keepFrustum = tempScene.orthoFrustum
+            local keepDepth = not keepFrustum and dollyFitEnabled() and currentViewDepth() or nil
             updatePreviewScene()
             if keepFrustum then
                 tempScene.orthoFrustum = keepFrustum
                 render.setFrustum(tempScene.camera, keepFrustum)
+            elseif keepDepth then
+                restoreDollyDepth(keepDepth)
             end
         end
     end
@@ -952,10 +1104,13 @@ function this.open(objOrSubject, options)
         tempScene.config.yaw = (tempScene.config.yaw - 90 + 180) % 360 - 180
         if sliderRefreshers.yaw then sliderRefreshers.yaw() end
         local keepFrustum = tempScene.orthoFrustum
+        local keepDepth = not keepFrustum and dollyFitEnabled() and currentViewDepth() or nil
         updatePreviewScene()
         if keepFrustum then
             tempScene.orthoFrustum = keepFrustum
             render.setFrustum(tempScene.camera, keepFrustum)
+        elseif keepDepth then
+            restoreDollyDepth(keepDepth)
         end
         controlsMenu:updateLayout()
     end)

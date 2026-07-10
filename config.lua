@@ -39,7 +39,9 @@ return {
     previewOutputFormat = "png", -- "png", "tga" or "dds"
     -- Legacy (pre-global) setting. Kept for backward compatibility with saved configs.
     previewFitToFrame = nil,
-    previewForcePerPixel = false, -- force MGE per-pixel lighting in the preview so candle flames render (preview looks brighter than the output)
+    -- Config-only (no MCM): the standard live-view behavior; edit here to opt out.
+    previewForceVertexLighting = true, -- force MGE vertex lighting in the preview so brightness matches the file output (which bypasses MGE)
+    previewDollyFit = true, -- fit the live view by camera distance at the default projection (flames render under vertex lighting; ortho emulated by view-axis flattening)
     panSpeed = 0.75, -- WASD pan speed, in subject radii per second
 
     -- Camera view direction per category, MW world axes (+X east, +Y north, +Z up).

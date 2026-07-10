@@ -171,12 +171,6 @@ function this.registerModConfig()
         variable = mwse.mcm.createTableVariable({ id = "previewOutputFormat", table = settings.current }),
     })
 
-    group:createYesNoButton({
-        label = "Force Per-Pixel Lighting",
-        description = "Force MGE per-pixel lighting while the preview is open, so candle flames and similar particle effects render. Restores your MGE setting on close. Downside: per-pixel is brighter, so the preview looks lighter than the actual output.",
-        variable = mwse.mcm.createTableVariable({ id = "previewForcePerPixel", table = settings.current }),
-    })
-
     mwse.mcm.register(template)
 end
 

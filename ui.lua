@@ -64,9 +64,11 @@ function this.openMenu()
     titleLabel.borderBottom = 15
 
     local inputBlock = contents:createBlock()
-    inputBlock.autoHeight = true
+    inputBlock.autoHeight = false
+    inputBlock.height = 75
     inputBlock.widthProportional = 1.0
     inputBlock.borderBottom = 12
+    inputBlock.flowDirection = tes3.flowDirection.topToBottom
 
     local searchInput = inputBlock:createTextInput({ id = searchInputID, createBorder = false })
     searchInput.widthProportional = 1.0
@@ -79,6 +81,25 @@ function this.openMenu()
     searchInput:register(tes3.uiEvent.keyEnter, function()
         tes3ui.acquireTextInput(nil)
         return false
+    end)
+
+    local btnClear = inputBlock:createButton({ text = "Clear" })
+    btnClear.borderTop = 10
+    btnClear.visible = (lastSearchPattern ~= "")
+    btnClear:register(tes3.uiEvent.mouseClick, function()
+        searchInput.text = ""
+        lastSearchPattern = ""
+        btnClear.visible = false
+        inputBlock:updateLayout()
+        tes3ui.acquireTextInput(searchInput)
+    end)
+
+    searchInput:register(tes3.uiEvent.textUpdated, function()
+        local hasText = searchInput.text ~= ""
+        if btnClear.visible ~= hasText then
+            btnClear.visible = hasText
+            inputBlock:updateLayout()
+        end
     end)
 
     -- Fixed two-line block reserves the space so a one- vs two-line status message

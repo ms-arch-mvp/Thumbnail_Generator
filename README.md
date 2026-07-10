@@ -7,7 +7,7 @@ MWSE mod that renders thumbnails from in-game.
 
 Made with contributions from [Greatness7](https://github.com/Greatness7). 
 
-In use by: [oaab.dev](https://www.oaab.dev/)
+In use by: [oaab.dev](https://www.oaab.dev/library/)
 
 ### Prerequistes
 

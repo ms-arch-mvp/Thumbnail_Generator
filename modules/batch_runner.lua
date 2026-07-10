@@ -58,26 +58,36 @@ local function thumbnailExists(subject, meshPath)
     return lfs.fileexists(outputPath)
 end
 
--- Reads the flagged mesh list (one path per line) from the output folder into a
--- set keyed by normalized mesh path. Returns nil + the path if the file is absent.
-local function readFlaggedSet()
+-- Reads the flagged list (one pattern per line) from the output folder and
+-- compiles it into a single predicate: a record is flagged if any line matches it
+-- under the shared search semantics (substring / glob / comma AND-terms), so an
+-- entry like "f\furn_com_bar_0" flags every numbered variant and the trailing
+-- ".nif" is optional. Blank lines and "#" comments are ignored. Returns the
+-- matcher, the file path, and the pattern count (nil matcher if the file is absent).
+local function readFlaggedMatcher()
     local path = settings.getOutputFolder() .. "\\" .. (settings.current.flaggedMeshesFile or "flagged_meshes.txt")
     local file = io.open(path, "r")
     if not file then return nil, path end
 
-    local set = {}
-    local count = 0
+    local matchers = {}
     for line in file:lines() do
-        local mesh = line:gsub("^%s+", ""):gsub("%s+$", "")
-        if mesh ~= "" then
+        line = line:gsub("^%s+", ""):gsub("%s+$", "")
+        if line ~= "" and line:sub(1, 1) ~= "#" then
             -- Entries may carry a leading "meshes\"; record mesh paths don't.
-            mesh = mesh:gsub("^[Mm][Ee][Ss][Hh][Ee][Ss][\\/]", "")
-            set[subject_resolver.normalizeMeshPath(mesh)] = true
-            count = count + 1
+            line = line:gsub("^[Mm][Ee][Ss][Hh][Ee][Ss][\\/]", "")
+            local matcher = subject_resolver.compileMatcher(line)
+            if matcher then table.insert(matchers, matcher) end
         end
     end
     file:close()
-    return set, path, count
+
+    local flaggedMatcher = function(obj)
+        for _, matcher in ipairs(matchers) do
+            if matcher(obj) then return true end
+        end
+        return false
+    end
+    return flaggedMatcher, path, #matchers
 end
 
 local function logEntry(subject)
@@ -306,11 +316,11 @@ function this.renderBatch(params)
         return
     end
 
-    -- Flagged run: restrict to meshes listed in the flagged file.
-    local flaggedSet
+    -- Flagged run: restrict to records matching a pattern in the flagged file.
+    local flaggedMatcher
     if params.flaggedOnly then
-        local set, path, count = readFlaggedSet()
-        if not set then
+        local matcher, path, count = readFlaggedMatcher()
+        if not matcher then
             if params.onError then params.onError("Flagged file not found:\n" .. tostring(path)) end
             return
         end
@@ -318,7 +328,7 @@ function this.renderBatch(params)
             if params.onError then params.onError("Flagged file is empty.") end
             return
         end
-        flaggedSet = set
+        flaggedMatcher = matcher
     end
 
     local types = params.objectType
@@ -358,7 +368,7 @@ function this.renderBatch(params)
                     if dedupeKey ~= "" and not seenMeshes[dedupeKey] then
                         local skip = (settings.current.renderOnlyRotationExceptions
                                 and not rotation_exceptions.match(meshKey))
-                            or (flaggedSet and not flaggedSet[meshKey])
+                            or (flaggedMatcher and not flaggedMatcher(obj))
                         if not skip then
                             seenMeshes[dedupeKey] = true
                             local subject = subject_resolver.resolve(obj)

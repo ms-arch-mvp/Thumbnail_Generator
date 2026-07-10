@@ -97,7 +97,8 @@ end
 
 -- Rigid shapes contribute real vertices (the exact tightest projected bound);
 -- skinned shapes use deformed per-shape bbox corners (data.vertices is bind pose).
--- Known gap: inactive LOD/switch branches still widen the extent.
+-- Known gap: inactive LOD branches still widen the extent (switch nodes are
+-- already pinned to one child before framing runs).
 local function collectWorldVerts(scene)
     local worldVerts = {}
     local particleSystems = {}

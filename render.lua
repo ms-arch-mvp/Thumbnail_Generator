@@ -253,6 +253,42 @@ local function hideCollisionNodes(scene)
     end
 end
 
+-- Switch nodes (NiSwitchNode, and its NiFltAnimationNode flipbook subclass) show
+-- one child at a time, cycled by an animation controller the static thumbnail
+-- never ticks -- so the flip is left in an undefined state and every frame draws
+-- stacked (or none does). Pin a single valid frame: keep the active child (or the
+-- first real one) and app-cull the siblings, so render and framing see one state.
+-- NiLODNode is also a NiSwitchNode subclass but is excluded -- its level selection
+-- is driven live by camera.lodAdjust (the flame-emitter fix), not pinned here.
+local function pinSwitchNodes(scene)
+    for node in table.traverse({ scene }) do
+        if node:isInstanceOfType(tes3.niType.NiSwitchNode)
+            and not node:isInstanceOfType(tes3.niType.NiLODNode) then
+            local children = node.children
+            -- switchIndex is 0-based (-1 = none); children is 1-based with nil gaps.
+            local keep = node.switchIndex
+            if not keep or keep < 0 or not children[keep + 1] then
+                -- No usable active child: fall back to the first real one and re-point.
+                keep = nil
+                for i = 1, #children do
+                    if children[i] then
+                        keep = i - 1
+                        break
+                    end
+                end
+                if keep then node.switchIndex = keep end
+            end
+            if keep then
+                for i = 1, #children do
+                    if children[i] then
+                        children[i].appCulled = (i - 1) ~= keep
+                    end
+                end
+            end
+        end
+    end
+end
+
 -- Particle data is shared with live world instances via the mesh cache, so a
 -- clone can capture an arbitrary mid-simulation snapshot. Re-simulate
 -- deterministically instead, in small steps -- particles are stateful, one big
@@ -294,6 +330,7 @@ function this.createRenderableScene(subject, meshPath)
 
     enableParticleFollow(scene)
     hideCollisionNodes(scene)
+    pinSwitchNodes(scene)
     return scene
 end
 

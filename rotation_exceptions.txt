@@ -91,6 +91,7 @@ x\ex_vivec_wspout_d_02
 
 Rotate 180:
 oaab\d\red_door_large
+oaab\i\dwrvroom
 oaab\i\impbig_tall_wall
 oaab\i\impbig_tall_wall02
 oaab\i\impbig_tall_wallarch

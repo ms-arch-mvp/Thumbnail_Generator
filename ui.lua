@@ -10,10 +10,6 @@ local settings = thumbnail_settings
 local menuID = "ThumbnailGen:ThumbnailMenu"
 local searchInputID = tes3ui.registerID("ThumbnailGen:SearchInput")
 
--- Kept across menu close/reopen (e.g. opening a preview and coming back) for
--- this game session; reset on reload.
-local lastSearchPattern = ""
-
 local function getColor(name)
     return tes3ui.getPalette(name)
 end
@@ -35,7 +31,7 @@ function this.closeMenu(keepMenuMode)
 
         local searchInput = menu:findChild(searchInputID)
         if searchInput then
-            lastSearchPattern = searchInput.text
+            settings.lastSearchPattern = searchInput.text
         end
 
         if not keepMenuMode then
@@ -83,7 +79,7 @@ function this.openMenu()
     searchInput.height = 30
     searchInput.borderAllSides = 5
     searchInput.borderTop = 10
-    searchInput.text = lastSearchPattern
+    searchInput.text = settings.lastSearchPattern
     searchInput:register(tes3.uiEvent.mouseClick, function(e)
         tes3ui.acquireTextInput(e.source)
     end)
@@ -94,10 +90,10 @@ function this.openMenu()
 
     local btnClear = inputBlock:createButton({ text = "Clear" })
     btnClear.borderTop = 10
-    btnClear.visible = (lastSearchPattern ~= "")
+    btnClear.visible = (settings.lastSearchPattern ~= "")
     btnClear:register(tes3.uiEvent.mouseClick, function()
         searchInput.text = ""
-        lastSearchPattern = ""
+        settings.lastSearchPattern = ""
         btnClear.visible = false
         inputBlock:updateLayout()
         tes3ui.acquireTextInput(searchInput)

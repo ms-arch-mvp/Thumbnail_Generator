@@ -171,6 +171,14 @@ function this.registerModConfig()
         variable = mwse.mcm.createTableVariable({ id = "previewOutputFormat", table = settings.current }),
     })
 
+    group = settingsPage:createCategory("Profiles")
+
+    group:createYesNoButton({
+        label = "Use Profiles",
+        description = "Apply profiles saved from the preview's Save Profile button: matching records inherit the profile's camera, lighting, ortho/fit, and zoom/pan in both batch renders and previews. Scope precedence: search > type > all; latest saved wins. Each profile is its own file under the output folder's \"profiles\" subfolder; delete a file to remove its profile (loaded at startup).",
+        variable = mwse.mcm.createTableVariable({ id = "useProfiles", table = settings.current }),
+    })
+
     mwse.mcm.register(template)
 end
 

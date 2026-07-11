@@ -4,6 +4,9 @@ local this = {}
 local thumbnail_settings = require("ThumbnailGenerator.modules.thumbnail_settings")
 local typeToKey = thumbnail_settings.typeToKey
 local camera_profiles = require("ThumbnailGenerator.modules.camera_profiles")
+-- profiles lazy-requires this module back for compileMatcher; this direction is
+-- the file-scope one, so keep profiles free of file-scope requires into us.
+local profiles = require("ThumbnailGenerator.modules.profiles")
 
 -- objectType -> singular display name, from constants.typeMetadata.
 local objectTypeNames = {}
@@ -47,6 +50,10 @@ function this.resolve(obj)
         config = thumbnail_settings.getDefaultConfig(obj.objectType),
     }
     subject.profile = camera_profiles.resolve(subject)
+    -- Saved profiles override the shared defaults per matching record (opt-in).
+    if thumbnail_settings.current.useProfiles then
+        profiles.apply(subject)
+    end
     return subject
 end
 
@@ -202,6 +209,9 @@ function this.resolveFallback(meshPath)
         config = thumbnail_settings.getDefaultConfig(nil),
     }
     subject.profile = camera_profiles.resolve(subject)
+    if thumbnail_settings.current.useProfiles then
+        profiles.apply(subject)
+    end
     return subject
 end
 

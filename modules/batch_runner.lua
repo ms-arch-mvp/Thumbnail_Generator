@@ -166,6 +166,12 @@ local function onFrame()
         local outputPath = renderer.getOutputPath(subject, mPath)
         local cfg = subject.config
         local fitToFrame = settings.current.fitToFrame ~= false
+        local ortho = batch.forceOrtho
+        -- A matched profile's saved toggles win over the batch-wide MCM values.
+        if subject.appliedProfile then
+            fitToFrame = cfg.fitToFrame == true
+            ortho = cfg.ortho == true
+        end
         -- Match preview behavior: when fitting to frame, zoom/pan are moot (refit
         -- re-crops to content), so force neutral values for consistency.
         local zoom = fitToFrame and 1.0 or cfg.zoom
@@ -196,10 +202,11 @@ local function onFrame()
                     fillDimmer = cfg.fillDimmer,
                     ambientScale = cfg.ambientScale,
                     diffuseScale = cfg.diffuseScale,
-                    fitToFrame = settings.current.fitToFrame,
+                    fitToFrame = fitToFrame,
                     -- The MCM toggle is authoritative for the whole batch (not
-                    -- `or cfg.ortho` -- that defaults true and would defeat toggling off).
-                    ortho = batch.forceOrtho,
+                    -- `or cfg.ortho` -- that defaults true and would defeat
+                    -- toggling off); profiled records carry their own (above).
+                    ortho = ortho,
                     skipEmpty = settings.current.skipEmptyRenders,
                     outputFormat = batch.outputFormat,
                     resolution = batch.resolution,

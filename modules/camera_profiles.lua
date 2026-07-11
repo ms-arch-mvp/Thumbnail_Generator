@@ -41,9 +41,16 @@ function this.resolve(subject)
 end
 
 function this.offsetDirForProfile(profile)
-    local directions = settings.current.viewDirections
-    local base = directions[(profile and profile.category) or "standard"] or directions.standard
-    local dir = tes3vector3.new(base[1], base[2], base[3])
+    local dir
+    if profile and profile.direction then
+        -- Explicit direction (render profiles' "override" mode): replaces the
+        -- category base view entirely; rotationRules still apply if present.
+        dir = tes3vector3.new(profile.direction[1], profile.direction[2], profile.direction[3])
+    else
+        local directions = settings.current.viewDirections
+        local base = directions[(profile and profile.category) or "standard"] or directions.standard
+        dir = tes3vector3.new(base[1], base[2], base[3])
+    end
 
     local angleDeg = 0
     if profile and profile.rotationRules then

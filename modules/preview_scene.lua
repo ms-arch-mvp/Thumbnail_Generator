@@ -11,6 +11,12 @@ local settings = require("ThumbnailGenerator.modules.thumbnail_settings")
 -- writes fields directly (config, pan, drag bookkeeping, slider refs).
 this.state = nil
 
+-- The live view frames this much looser than the render's neutral fit, purely
+-- for editing room. Zoom itself is render-scale everywhere (1.0 = neutral tight
+-- fit, exactly what config.lua/profiles/sessions/batch store) -- this margin is
+-- the only place the live view differs, so no unit conversions exist anywhere.
+this.liveViewMargin = 2.0
+
 -- Dolly fit: MGE's vertex-lighting path projects particles through the pristine
 -- frustum and ignores pokes, so flames detach from their mesh in the live view.
 -- With this mode on, the default projection stays live and the subject is moved
@@ -41,6 +47,10 @@ local function restoreDollyDepth(depth)
     local camPos = cam.worldTransform.translation
     local current = (ts.rotationTargetPos - camPos):dot(cam.worldDirection)
     if current <= 0 then return end
+    -- Same near-plane floor as the full fit, so the two paths always agree.
+    if ts.baseFrustum then
+        depth = math.max(depth, ts.baseFrustum[5] * 1.1)
+    end
 
     local pivot = camPos + (ts.rotationTargetPos - camPos) * (depth / current)
     local delta = pivot - ts.rotationTargetPos
@@ -186,6 +196,7 @@ function this.update(params)
             ortho = cfg.ortho == true and not dollyFit,
             orthoBase = ts.baseFrustum,
             targetAspect = screenAspect,
+            fitMargin = this.liveViewMargin,
             profile = profile,
         })
 
@@ -211,8 +222,10 @@ function this.update(params)
             local camPos = camera.worldTransform.translation
             local depth0 = (targetPos - camPos):dot(camera.worldDirection)
             if depth0 > 0 and r > 0 then
-                -- Keep small subjects clear of the game near plane.
-                r = math.max(r, (base[5] * 4 + dynamicRadius) / depth0)
+                -- Only keep the rig in front of the near plane -- anything more
+                -- would silently cap saved zooms at open (the fast path doesn't
+                -- clamp, and the view flatten makes near-clipping a non-issue).
+                r = math.max(r, (base[5] * 1.1) / depth0)
                 local newTarget = camPos + (targetPos - camPos) * r
                 local delta = newTarget - targetPos
                 targetPos = newTarget
@@ -312,15 +325,20 @@ function this.begin(subject)
         currentConfig[k] = v
     end
     currentConfig.roll = currentConfig.roll or 0
-    -- initialConfig.zoom is render-scale (from getDefaultConfig / settings.current);
-    -- state.config.zoom must be internal (2.0 / displayZoom).
-    -- Default config.lua zoom = 1.0 render-scale = 2.0 internal = display 1x (neutral fit).
-    currentConfig.zoom = (initialConfig.zoom or 1.0) * 2.0
-    -- Follow the MCM Orthographic (batch) toggle, so turning it off there opens
-    -- the preview in perspective too instead of always defaulting to ortho.
-    currentConfig.ortho = settings.current.forceOrtho
-    -- Follow the MCM Fit to Frame toggle as the opening state.
-    currentConfig.fitToFrame = settings.current.fitToFrame
+    -- Zoom is render-scale (1.0 = neutral) everywhere, the live view included;
+    -- liveViewMargin supplies the looser on-screen framing instead.
+    currentConfig.zoom = initialConfig.zoom or 1.0
+    if subject.appliedProfile then
+        -- A saved profile's own toggles open with its records.
+        currentConfig.ortho = initialConfig.ortho == true
+        currentConfig.fitToFrame = initialConfig.fitToFrame == true
+    else
+        -- Follow the MCM Orthographic (batch) toggle, so turning it off there opens
+        -- the preview in perspective too instead of always defaulting to ortho.
+        currentConfig.ortho = settings.current.forceOrtho
+        -- Follow the MCM Fit to Frame toggle as the opening state.
+        currentConfig.fitToFrame = settings.current.fitToFrame
+    end
 
     this.state = {
         subject = subject,
@@ -334,10 +352,10 @@ function this.begin(subject)
         config = currentConfig,
         sliders = {},
         labels = {},
-        -- WASD pan offsets, as a fraction of the frustum width/height.
-        -- Restored from the session so "Save to session" carries pan into the next preview.
-        panX = settings.current.panX or 0,
-        panY = settings.current.panY or 0,
+        -- WASD pan offsets, in subject radii. Restored from the session (or the
+        -- applied profile) so a saved pan carries into the next preview.
+        panX = (subject.appliedProfile and initialConfig.panX) or settings.current.panX or 0,
+        panY = (subject.appliedProfile and initialConfig.panY) or settings.current.panY or 0,
         baseFrustum = render.getFrustum(camera),
         -- MGE pauses world rendering in menus; unpause for a live view.
         mgePauseInMenus = mge.render.pauseRenderingInMenus,

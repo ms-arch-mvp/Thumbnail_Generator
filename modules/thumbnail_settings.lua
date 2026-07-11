@@ -29,6 +29,10 @@ else
     this.current = defaults
 end
 
+-- Last search text, shared by the batch menu and the preview's switch search for
+-- this game session. Module field (not in `current`) so it is never persisted.
+this.lastSearchPattern = ""
+
 -- Strips a leading "data files\" (any case / slash style) so getOutputFolder can
 -- re-add exactly one, regardless of what was typed into the folder setting.
 local function stripDataFilesPrefix(folder)

@@ -8,9 +8,12 @@ local subject_resolver = require("ThumbnailGenerator.modules.subject_resolver")
 local settings = require("ThumbnailGenerator.modules.thumbnail_settings")
 local preview_scene = require("ThumbnailGenerator.modules.preview_scene")
 local preview_pickers = require("ThumbnailGenerator.modules.preview_pickers")
+local profiles = require("ThumbnailGenerator.modules.profiles")
+local camera_profiles = require("ThumbnailGenerator.modules.camera_profiles")
 
 local backgroundMenuID = "ThumbnailGen:PreviewBackground"
 local controlsMenuID = "ThumbnailGen:PreviewControls"
+local profilePopupID = "ThumbnailGen:ProfilePopup"
 
 -- Slider bounds for raw zoom values.
 local displayZoomMin = 0.05
@@ -114,9 +117,11 @@ function this.open(objOrSubject, options)
     end
 
     -- Sets zoom from a discrete input (mouse wheel), syncing the zoom slider.
+    -- Zoom is stored render-scale (1.0 = neutral, lower = closer); the display
+    -- shows its reciprocal as magnification (higher = closer).
     local function applyZoom(newDisplayZoom)
         newDisplayZoom = math.max(displayZoomMin, math.min(displayZoomMax, newDisplayZoom))
-        ts.config.zoom = 2.0 / newDisplayZoom
+        ts.config.zoom = 1.0 / newDisplayZoom
         if ts.sliders.zoom then
             ts.sliders.zoom.widget.current = math.floor((newDisplayZoom - displayZoomMin) / 0.05 + 0.5)
             if ts.labels.zoom then
@@ -137,7 +142,8 @@ function this.open(objOrSubject, options)
     local function pollPan(dt)
         if searchFocused or not isPreviewActive() then return end
         local ic = tes3.worldController.inputController
-        local step = settings.current.panSpeed * (ts.config.zoom or 1) * dt
+        -- On-screen speed tracks visible size: render-scale zoom x the live margin.
+        local step = settings.current.panSpeed * (ts.config.zoom or 1) * preview_scene.liveViewMargin * dt
         local dx, dy = 0, 0
         -- D pans the view right (subject slides left), etc.
         if ic:isKeyDown(tes3.scanCode.d) then dx = dx - step end
@@ -233,7 +239,7 @@ function this.open(objOrSubject, options)
     local zoomWheelStep = 0.10
     local function onMouseWheel(e)
         if not isCurrent() or isMouseOverUI() or not isPreviewActive() then return end
-        local currentDisplayZoom = 2.0 / ts.config.zoom
+        local currentDisplayZoom = 1.0 / ts.config.zoom
         if e.delta > 0 then
             applyZoom(currentDisplayZoom + zoomWheelStep)
         elseif e.delta < 0 then
@@ -279,6 +285,10 @@ function this.open(objOrSubject, options)
             local bg = tes3ui.findMenu(backgroundMenuID)
             if bg then
                 bg:destroy()
+            end
+            local popup = tes3ui.findMenu(profilePopupID)
+            if popup then
+                popup:destroy()
             end
 
             if tes3.mobilePlayer then
@@ -341,6 +351,8 @@ function this.open(objOrSubject, options)
 
     local searchInput = searchBox:createTextInput({ createBorder = false })
     searchInput.widthProportional = 1.0
+    -- Shared with the batch menu's search box for this session.
+    searchInput.text = settings.lastSearchPattern or ""
 
     local function acquireSearchInput()
         tes3ui.acquireTextInput(searchInput)
@@ -352,6 +364,7 @@ function this.open(objOrSubject, options)
     local function runSwitchSearch()
         tes3ui.acquireTextInput(nil)
         searchFocused = false
+        settings.lastSearchPattern = searchInput.text or ""
 
         local types = settings.getEnabledTypes()
         local switchOptions = {
@@ -392,6 +405,13 @@ function this.open(objOrSubject, options)
     searchButton.borderLeft = 6
     searchButton:register(tes3.uiEvent.mouseClick, runSwitchSearch)
 
+    local searchClear = searchRow:createButton({ text = "Clear" })
+    searchClear:register(tes3.uiEvent.mouseClick, function()
+        searchInput.text = ""
+        settings.lastSearchPattern = ""
+        acquireSearchInput()
+    end)
+
     local settingsScroll = contents:createVerticalScrollPane()
     settingsScroll.widthProportional = 1.0
     settingsScroll.heightProportional = 1.0
@@ -420,7 +440,7 @@ function this.open(objOrSubject, options)
         container.borderBottom = 8
 
         local currentVal = ts.config[key]
-        local displayVal = invert and (2.0 / currentVal) or currentVal
+        local displayVal = invert and (1.0 / currentVal) or currentVal
         local displayLabel = container:createLabel({ text = toTextFn(displayVal) })
         displayLabel.color = getColor("normal_color")
         ts.labels[key] = displayLabel
@@ -444,7 +464,7 @@ function this.open(objOrSubject, options)
             if raw == lastRaw then return end
             lastRaw = raw
             local shown = minVal + raw * stepVal
-            ts.config[key] = invert and (2.0 / shown) or shown
+            ts.config[key] = invert and (1.0 / shown) or shown
             displayLabel.text = toTextFn(shown)
             preview_scene.update({ rotationOnly = rotationOnly, zoomOnly = key == "zoom" })
             -- Rotation skips fitting mid-move to stay smooth; flag a settle-fit on release.
@@ -458,7 +478,7 @@ function this.open(objOrSubject, options)
         -- Pushes the current ts.config value back onto the widget + label
         -- (used by the Reset button, which sets config directly).
         sliderRefreshers[key] = function()
-            local dv = invert and (2.0 / ts.config[key]) or ts.config[key]
+            local dv = invert and (1.0 / ts.config[key]) or ts.config[key]
             lastRaw = math.floor((dv - minVal) / stepVal + 0.5)
             slider.widget.current = lastRaw
             displayLabel.text = toTextFn(dv)
@@ -722,10 +742,7 @@ function this.open(objOrSubject, options)
         for _, key in ipairs(keys) do
             settings.current[key] = cfg[key]
         end
-        -- cfg.zoom is internal (2.0 / displayZoom); the render pipeline expects
-        -- the normalised scale where 1.0 = neutral, matching config.lua's default.
-        -- The Render button uses the same /2.0 conversion.
-        settings.current.zoom = cfg.zoom / 2.0
+        settings.current.zoom = cfg.zoom
         settings.current.panX = ts.panX or 0
         settings.current.panY = ts.panY or 0
         settings.current.forceOrtho = cfg.ortho
@@ -745,9 +762,7 @@ function this.open(objOrSubject, options)
             ts.config[key] = defaults[key]
             if sliderRefreshers[key] then sliderRefreshers[key]() end
         end
-        -- defaults.zoom is render-scale (1.0 = neutral); ts.config.zoom is
-        -- internal (2.0 / displayZoom), so convert back.
-        ts.config.zoom = (defaults.zoom or 1.0) * 2.0
+        ts.config.zoom = defaults.zoom or 1.0
         if sliderRefreshers.zoom then sliderRefreshers.zoom() end
         ts.panX = settings.current.panX or 0
         ts.panY = settings.current.panY or 0
@@ -760,6 +775,180 @@ function this.open(objOrSubject, options)
         controlsMenu:updateLayout()
         tes3.messageBox("Reset session + preview camera and lighting to the loaded defaults.")
     end)
+
+    -- Save Profile: persist the full preview state to file, applied to matching
+    -- records by batch + preview when the MCM "Use Profiles" toggle is on.
+    local function openProfilePopup()
+        local existing = tes3ui.findMenu(profilePopupID)
+        if existing then existing:destroy() end
+
+        local popup = tes3ui.createMenu({ id = profilePopupID, fixedFrame = true })
+        popup.minWidth = 520
+        popup.minHeight = 260
+        local pContents = popup:createBlock()
+        pContents.flowDirection = tes3.flowDirection.topToBottom
+        pContents.widthProportional = 1.0
+        pContents.heightProportional = 1.0
+        pContents.autoHeight = false
+        pContents.borderAllSides = 12
+
+        -- Scope: which records this profile applies to.
+        local scope = "type"
+        local scopeButtons = {}
+        local function refreshScopeButtons()
+            for key, btn in pairs(scopeButtons) do
+                btn.widget.state = (key == scope) and tes3.uiState.active or tes3.uiState.normal
+            end
+        end
+
+        local scopeLabel = pContents:createLabel({ text = "Apply to:" })
+        scopeLabel.color = getColor("disabled_color")
+        scopeLabel.borderBottom = 4
+        local scopeRow = pContents:createBlock()
+        scopeRow.flowDirection = tes3.flowDirection.leftToRight
+        scopeRow.widthProportional = 1.0
+        scopeRow.autoHeight = true
+        scopeRow.borderBottom = 12
+
+        local function addScopeButton(key, text)
+            local btn = scopeRow:createButton({ text = text })
+            btn:register(tes3.uiEvent.mouseClick, function()
+                scope = key
+                refreshScopeButtons()
+            end)
+            scopeButtons[key] = btn
+        end
+        addScopeButton("all", "All")
+        addScopeButton("type", "Type: " .. (subject.typeName or "unknown"))
+        addScopeButton("search", "Search:")
+
+        -- Pattern input sits inline to the right of the "Search:" button.
+        local patternInput = scopeRow:createTextInput({ createBorder = false })
+        patternInput.widthProportional = 1.0
+        patternInput.height = 30
+        patternInput.borderAllSides = 5
+        patternInput.text = searchInput.text or ""
+        local function focusPattern()
+            scope = "search"
+            refreshScopeButtons()
+            tes3ui.acquireTextInput(patternInput)
+        end
+        patternInput:register(tes3.uiEvent.mouseClick, focusPattern)
+        -- Typing a pattern implies the search scope.
+        patternInput:register(tes3.uiEvent.textUpdated, function()
+            if scope ~= "search" then
+                scope = "search"
+                refreshScopeButtons()
+            end
+        end)
+
+        -- Rotation mode: add the saved yaw on top of rotation_exceptions.txt
+        -- corrections (current behavior), or replace those corrections entirely.
+        local rotationMode = "add"
+        local rotHint = pContents:createLabel({ text = "Rotations:" })
+        rotHint.color = getColor("disabled_color")
+        rotHint.borderBottom = 4
+        local rotRow = pContents:createBlock()
+        rotRow.flowDirection = tes3.flowDirection.leftToRight
+        rotRow.widthProportional = 1.0
+        rotRow.autoHeight = true
+        rotRow.borderBottom = 10
+        local rotBtn = rotRow:createButton({ text = "Add to built-in rotations" })
+        rotBtn:register(tes3.uiEvent.mouseClick, function()
+            rotationMode = rotationMode == "add" and "override" or "add"
+            rotBtn.text = rotationMode == "add" and "Add to built-in rotations" or "Override built-in rotations"
+            popup:updateLayout()
+        end)
+
+        local pSpacer = pContents:createBlock()
+        pSpacer.widthProportional = 1.0
+        pSpacer.heightProportional = 1.0
+
+        local pButtons = pContents:createBlock()
+        pButtons.flowDirection = tes3.flowDirection.leftToRight
+        pButtons.widthProportional = 1.0
+        pButtons.autoHeight = true
+        pButtons.childAlignX = 1.0
+        pButtons.borderTop = 8
+
+        local btnSaveOk = pButtons:createButton({ text = "Save profile" })
+        btnSaveOk:register(tes3.uiEvent.mouseClick, function()
+            local pattern
+            if scope == "search" then
+                pattern = (patternInput.text or ""):match("^%s*(.-)%s*$")
+                if pattern == "" then
+                    tes3.messageBox("Enter a search pattern for a search-scoped profile.")
+                    return
+                end
+            end
+
+            local cfg = ts.config
+            -- Override mode bakes the previewed subject's fully-resolved view
+            -- direction (type base view + its rotation exception), so matched
+            -- records render with exactly the orientation on screen now.
+            local direction
+            if rotationMode == "override" then
+                local dir = camera_profiles.offsetDirForProfile(subject.profile)
+                direction = { dir.x, dir.y, dir.z }
+            end
+            local savedPath, errPath = profiles.save({
+                scope = scope,
+                typeKey = scope == "type" and subject.typeKey or nil,
+                typeName = scope == "type" and subject.typeName or nil,
+                pattern = pattern,
+                rotationMode = rotationMode,
+                direction = direction,
+                settings = {
+                    yaw = cfg.yaw,
+                    pitch = cfg.pitch,
+                    roll = cfg.roll,
+                    zoom = cfg.zoom or 1.0,
+                    panX = ts.panX or 0,
+                    panY = ts.panY or 0,
+                    perspectiveDistanceFactor = cfg.perspectiveDistanceFactor,
+                    keyDimmer = cfg.keyDimmer,
+                    keyX = cfg.keyX,
+                    keyY = cfg.keyY,
+                    keyZ = cfg.keyZ,
+                    fillDimmer = cfg.fillDimmer,
+                    ambientScale = cfg.ambientScale,
+                    diffuseScale = cfg.diffuseScale,
+                    ortho = cfg.ortho == true,
+                    fitToFrame = cfg.fitToFrame == true,
+                },
+            })
+            if not savedPath then
+                tes3.messageBox("Error: could not write profile file:\n%s", tostring(errPath))
+                return
+            end
+            popup:destroy()
+            local scopeText = scope == "all" and "all records"
+                or scope == "type" and ("type " .. (subject.typeName or "?"))
+                or string.format("search \"%s\"", pattern)
+            tes3.messageBox("Profile saved for %s (%s).", scopeText, savedPath)
+        end)
+
+        local btnCancelPopup = pButtons:createButton({ text = "Cancel" })
+        btnCancelPopup:register(tes3.uiEvent.mouseClick, function()
+            popup:destroy()
+        end)
+
+        refreshScopeButtons()
+        popup:updateLayout()
+        tes3ui.enterMenuMode(profilePopupID)
+        -- Focus the pattern box so the typing cursor is visible immediately.
+        tes3ui.acquireTextInput(patternInput)
+    end
+
+    local profileRow = actionBlock:createBlock()
+    profileRow.flowDirection = tes3.flowDirection.leftToRight
+    profileRow.widthProportional = 1.0
+    profileRow.autoHeight = true
+    profileRow.borderBottom = 6
+
+    local btnSaveProfile = profileRow:createButton({ text = "Save profile..." })
+    btnSaveProfile.widthProportional = 1.0
+    btnSaveProfile:register(tes3.uiEvent.mouseClick, openProfilePopup)
 
     -- Perform test render & close
     local mainRow = actionBlock:createBlock()
@@ -785,10 +974,7 @@ function this.open(objOrSubject, options)
                 roll = ts.config.roll,
                 -- Fit-to-frame re-crops to content, so zoom is moot there; with it
                 -- off, honor the live zoom so a manual crop carries into the render.
-                -- ts.config.zoom is internal (2.0/displayZoom); computeOrthoFit
-                -- expects a value where higher = larger frustum = smaller object, so
-                -- divide by 2.0 to normalise: default internal 2.0 -> render zoom 1.0.
-                zoom = ts.config.fitToFrame and 1.0 or (ts.config.zoom / 2.0),
+                zoom = ts.config.fitToFrame and 1.0 or ts.config.zoom,
                 perspectiveDistanceFactor = ts.config.perspectiveDistanceFactor,
                 keyDimmer = ts.config.keyDimmer,
                 keyX = ts.config.keyX,

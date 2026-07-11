@@ -85,21 +85,23 @@ function this.match(normalizedMeshPath)
         file = normalizedMeshPath
     end
 
+    local best = nil
     for _, entry in ipairs(exceptions) do
         if entry.dir == dir and file:find(entry.file, 1, true) then
-            return {
-                rotation = entry.rotation,
-                dir = entry.dir,
-                file = entry.file,
-                source = entry.source,
-                provenance = string.format(
-                    "mesh exception: rotate %d (fragment '%s' in dir '%s', %s)",
-                    entry.rotation, entry.file, entry.dir == "" and "<root>" or entry.dir, entry.source),
-            }
+            best = entry
         end
     end
 
-    return nil
+    if not best then return nil end
+    return {
+        rotation = best.rotation,
+        dir = best.dir,
+        file = best.file,
+        source = best.source,
+        provenance = string.format(
+            "mesh exception: rotate %d (fragment '%s' in dir '%s', %s)",
+            best.rotation, best.file, best.dir == "" and "<root>" or best.dir, best.source),
+    }
 end
 
 

@@ -12,8 +12,10 @@ local settings = require("ThumbnailGenerator.modules.thumbnail_settings")
 
 -- Keys a profile's settings table stores. Values use the same units as
 -- config.lua's render defaults (zoom 1.0 = neutral, not the preview-internal scale).
+-- Order matches the top-to-bottom slider layout in the preview panel.
 this.settingKeys = {
-    "yaw", "pitch", "roll", "zoom", "panX", "panY", "perspectiveDistanceFactor",
+    "yaw", "pitch", "zoom", "roll", "perspectiveDistanceFactor",
+    "panX", "panY",
     "keyDimmer", "keyX", "keyY", "keyZ", "fillDimmer", "ambientScale", "diffuseScale",
     "ortho", "fitToFrame",
 }
@@ -110,6 +112,61 @@ local function filenameFor(profile)
     return name
 end
 
+-- Top-level keys written in a stable order so the JSON is readable.
+local topLevelKeys = {
+    "scope", "typeKey", "typeName", "pattern",
+    "rotationMode", "direction", "savedAt", "settings",
+}
+
+-- json.encode iterates Lua table keys in hash order (essentially random), so
+-- the written file ends up with fields shuffled on every save. Build the JSON
+-- manually so the key order is always predictable:
+--   • top-level keys follow topLevelKeys above
+--   • settings keys follow settingKeys (= preview slider order, top to bottom)
+local function encodeValue(v)
+    local t = type(v)
+    if t == "boolean" then return v and "true" or "false"
+    elseif t == "number" then
+        if v == math.floor(v) then return string.format("%d", v)
+        else return string.format("%.10g", v) end
+    elseif t == "string" then
+        return '"' .. v:gsub('\\', '\\\\'):gsub('"', '\\"'):gsub('\n', '\\n'):gsub('\r', '\\r') .. '"'
+    else return "null" end
+end
+
+local function encodeProfile(profile)
+    local lines = { "{" }
+
+    local presentTop = {}
+    for _, k in ipairs(topLevelKeys) do
+        if profile[k] ~= nil then presentTop[#presentTop + 1] = k end
+    end
+
+    for i, k in ipairs(presentTop) do
+        local isLast = (i == #presentTop)
+        local v = profile[k]
+        if k == "settings" then
+            lines[#lines + 1] = '  "settings": {'
+            local presentSettings = {}
+            for _, sk in ipairs(this.settingKeys) do
+                if v[sk] ~= nil then presentSettings[#presentSettings + 1] = sk end
+            end
+            for si, sk in ipairs(presentSettings) do
+                local comma = si < #presentSettings and "," or ""
+                lines[#lines + 1] = "    " .. '"' .. sk .. '": ' .. encodeValue(v[sk]) .. comma
+            end
+            lines[#lines + 1] = "  }" .. (isLast and "" or ",")
+        elseif k == "direction" and type(v) == "table" then
+            local arr = "[" .. encodeValue(v[1]) .. ", " .. encodeValue(v[2]) .. ", " .. encodeValue(v[3]) .. "]"
+            lines[#lines + 1] = '  "direction": ' .. arr .. (isLast and "" or ",")
+        else
+            lines[#lines + 1] = "  " .. '"' .. k .. '": ' .. encodeValue(v) .. (isLast and "" or ",")
+        end
+    end
+    lines[#lines + 1] = "}"
+    return table.concat(lines, "\n")
+end
+
 -- Writes the profile to its own file, overwriting the file of a same-identity
 -- profile if one exists. Returns the relative file path, or nil + path on error.
 function this.save(profile)
@@ -133,7 +190,7 @@ function this.save(profile)
     if not f then
         return nil, path
     end
-    f:write(json.encode(profile, { indent = true }))
+    f:write(encodeProfile(profile))
     f:close()
 
     table.insert(this.list, profile)

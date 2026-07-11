@@ -171,6 +171,16 @@ function this.registerModConfig()
         variable = mwse.mcm.createTableVariable({ id = "previewOutputFormat", table = settings.current }),
     })
 
+    group:createDropdown({
+        label = "Export Filename",
+        description = "Filename used by the preview window's Export button: the record's display name, or its record id.",
+        options = {
+            { label = "Name", value = "name" },
+            { label = "ID", value = "id" },
+        },
+        variable = mwse.mcm.createTableVariable({ id = "exportFilename", table = settings.current }),
+    })
+
     group = settingsPage:createCategory("Profiles")
 
     group:createYesNoButton({

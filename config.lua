@@ -67,9 +67,13 @@ local config = {
     previewOutputFormat = "png",
     panSpeed = 0.75, -- subject radii per second
 
+    -- Filename used by the preview window's Export button: "name" (display name)
+    -- or "id" (record id). Matches Export Cells' actor filename option.
+    exportFilename = "name",
+
     -- Config-only (no MCM)
-    previewForceVertexLighting = true,
-    previewDollyFit = true,
+    previewForceVertexLighting = false,
+    previewDollyFit = false,
 
     -- =============================================================================
     -- PROFILES

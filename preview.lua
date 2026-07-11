@@ -10,6 +10,7 @@ local preview_scene = require("ThumbnailGenerator.modules.preview_scene")
 local preview_pickers = require("ThumbnailGenerator.modules.preview_pickers")
 local profiles = require("ThumbnailGenerator.modules.profiles")
 local camera_profiles = require("ThumbnailGenerator.modules.camera_profiles")
+local scene_builder = require("ThumbnailGenerator.modules.scene_builder")
 
 local backgroundMenuID = "ThumbnailGen:PreviewBackground"
 local controlsMenuID = "ThumbnailGen:PreviewControls"
@@ -949,6 +950,71 @@ function this.open(objOrSubject, options)
     local btnSaveProfile = profileRow:createButton({ text = "Save profile..." })
     btnSaveProfile.widthProportional = 1.0
     btnSaveProfile:register(tes3.uiEvent.mouseClick, openProfilePopup)
+
+    -- Export the currently open object as a .nif under "<output>/exports".
+    -- A basic clone: NPCs/creatures export their full posed hierarchy (skeleton
+    -- + skinned meshes, skin refs rebound by name -- the "standard" export),
+    -- everything else exports a plain clone of its mesh.
+    local function exportSubject()
+        local obj = subject.object
+        local exportRoot
+
+        if obj and (obj.objectType == tes3.objectType.npc
+                or obj.objectType == tes3.objectType.creature) then
+            -- createActorScene wraps the posed clone so preview repositioning can't
+            -- disturb it; for export we want the clone itself as the file root, since
+            -- it carries the racial height/weight scale on its transform.
+            local wrapper = scene_builder.createActorScene(obj)
+            exportRoot = wrapper.children[1]
+            wrapper:detachChild(exportRoot)
+        else
+            local mesh = tes3.loadMesh(subject.meshPath)
+            if not mesh then
+                error("Failed to load mesh: " .. tostring(subject.meshPath))
+            end
+            exportRoot = mesh:clone()
+        end
+
+        -- Drop world placement; keep the transform's scale/rotation (size + pose).
+        exportRoot.translation = tes3vector3.new(0, 0, 0)
+
+        -- Filename: display name or record id, per the MCM option (matches Export
+        -- Cells). Each falls back to the other if the preferred value is missing.
+        local rawName
+        if settings.current.exportFilename == "id" then
+            rawName = subject.recordId or subject.displayName
+        else
+            rawName = subject.displayName or subject.recordId
+        end
+        rawName = rawName or "export"
+        local safeName = rawName:gsub("[^%w %._-]", "_")
+        exportRoot.name = safeName
+
+        local exportDir = settings.getOutputFolder() .. "\\exports"
+        render.ensureDirectory(exportDir .. "\\")
+        local fullPath = (exportDir .. "\\" .. safeName .. ".nif"):gsub("[/\\]+", "\\")
+
+        exportRoot:update()
+        exportRoot:saveBinary(fullPath)
+        return fullPath
+    end
+
+    local exportRow = actionBlock:createBlock()
+    exportRow.flowDirection = tes3.flowDirection.leftToRight
+    exportRow.widthProportional = 1.0
+    exportRow.autoHeight = true
+    exportRow.borderBottom = 6
+
+    local btnExport = exportRow:createButton({ text = "Export" })
+    btnExport.widthProportional = 1.0
+    btnExport:register(tes3.uiEvent.mouseClick, function()
+        local ok, result = pcall(exportSubject)
+        if ok then
+            tes3.messageBox("Exported: " .. result)
+        else
+            tes3.messageBox("Error exporting: " .. tostring(result))
+        end
+    end)
 
     -- Perform test render & close
     local mainRow = actionBlock:createBlock()

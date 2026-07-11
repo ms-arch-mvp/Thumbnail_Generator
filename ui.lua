@@ -1,4 +1,3 @@
--- Main batch render window and its glue to render/preview.
 local this = {}
 
 local render = require("ThumbnailGenerator.render")
@@ -14,7 +13,7 @@ local function getColor(name)
     return tes3ui.getPalette(name)
 end
 
--- Space cancels an in-progress batch (mirrors Export Cells). Registered once;
+-- Space cancels an in-progress batch. Registered once;
 -- no-ops unless a batch is running, so it's safe to leave always active.
 event.register(tes3.event.keyDown, function()
     if render.isBatchActive() then

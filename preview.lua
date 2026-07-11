@@ -978,11 +978,24 @@ function this.open(objOrSubject, options)
         -- Drop world placement; keep the transform's scale/rotation (size + pose).
         exportRoot.translation = tes3vector3.new(0, 0, 0)
 
-        -- Filename: display name or record id, per the MCM option (matches Export
-        -- Cells). Each falls back to the other if the preferred value is missing.
+        -- Filename per the MCM option: display name, record id, or mesh base name.
+        -- Each falls back so a missing value never yields an empty filename.
+        local mode = settings.current.exportFilename
         local rawName
-        if settings.current.exportFilename == "id" then
+        if mode == "id" then
             rawName = subject.recordId or subject.displayName
+        elseif mode == "mesh" then
+            -- NPCs are assembled from many meshes, so there is no single mesh name
+            -- to use; fall back to the record id for them.
+            if obj and obj.objectType == tes3.objectType.npc then
+                rawName = subject.recordId
+            else
+                local meshPath = subject.normalizedMeshPath
+                if meshPath and meshPath ~= "" then
+                    rawName = meshPath:match("[^/]+$") or meshPath
+                end
+                rawName = rawName or subject.recordId or subject.displayName
+            end
         else
             rawName = subject.displayName or subject.recordId
         end

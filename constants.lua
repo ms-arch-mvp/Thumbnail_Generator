@@ -1,7 +1,5 @@
 local constants = {}
 
--- key: internal id (MCM toggles, config). label: plural, for MCM toggle rows.
--- name: singular, for per-item display (preview editor, search results).
 constants.typeMetadata = {
     { key = "activator", label = "Activators",   name = "Activator",   type = tes3.objectType.activator },
     { key = "alchemy",   label = "Potions",      name = "Potion",      type = tes3.objectType.alchemy },

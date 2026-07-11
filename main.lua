@@ -1,5 +1,3 @@
--- Entry point for the Thumbnail Generator mod.
-
 local function initialized()
     local status, err = pcall(function()
         require("ThumbnailGenerator.ui")

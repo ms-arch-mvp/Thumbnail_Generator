@@ -1,4 +1,3 @@
--- Core mesh-to-PNG thumbnail rendering pipeline.
 local this = {}
 
 local ir = require("image_resize.image_resize")

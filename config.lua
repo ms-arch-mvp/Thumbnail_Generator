@@ -67,9 +67,10 @@ local config = {
     previewOutputFormat = "png",
     panSpeed = 0.75, -- subject radii per second
 
-    -- Filename used by the preview window's Export button: "name" (display name)
-    -- or "id" (record id). Matches Export Cells' actor filename option.
-    exportFilename = "name",
+    -- Filename used by the preview window's Export button: "name" (display name),
+    -- "id" (record id), or "mesh" (the mesh file's base name; NPCs fall back to id
+    -- since they have no single mesh).
+    exportFilename = "mesh",
 
     -- Config-only (no MCM)
     previewForceVertexLighting = false,

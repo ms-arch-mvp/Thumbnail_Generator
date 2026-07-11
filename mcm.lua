@@ -173,10 +173,11 @@ function this.registerModConfig()
 
     group:createDropdown({
         label = "Export Filename",
-        description = "Filename used by the preview window's Export button: the record's display name, or its record id.",
+        description = "Filename used by the preview window's Export button: the record's display name, its record id, or the mesh file's base name (NPCs fall back to their id, since they have no single mesh).",
         options = {
             { label = "Name", value = "name" },
             { label = "ID", value = "id" },
+            { label = "Mesh Name", value = "mesh" },
         },
         variable = mwse.mcm.createTableVariable({ id = "exportFilename", table = settings.current }),
     })

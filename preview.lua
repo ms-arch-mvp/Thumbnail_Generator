@@ -372,6 +372,12 @@ function this.open(objOrSubject, options)
             types = types,
             closeMenu = closeForSwitch,
             onExit = options and options.onExit,
+            onSelectSearchTerm = function(term)
+                searchInput.text = term
+                settings.lastSearchPattern = term
+                searchRow:updateLayout()
+                acquireSearchInput()
+            end,
         }
 
         -- Empty query: browse by plugin, same as the batch menu's Preview button.

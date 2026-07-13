@@ -48,6 +48,10 @@ local config = {
     outputResolution = 1024,
     outputFormat = "png", -- "png", "tga" or "dds"
 
+    -- "thumbnails" (default): render PNGs/TGAs/DDSs into the output folder.
+    -- "export": save each subject as a .nif under <output>\exports instead.
+    batchMode = "thumbnails",
+
     skipEmptyRenders = true,
     skipExistingThumbnails = false,
     renderOnlyRotationExceptions = false,

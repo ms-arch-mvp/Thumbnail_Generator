@@ -32,6 +32,34 @@ local function sanitizeFilename(str)
 end
 this.sanitizeFilename = sanitizeFilename
 
+local function resolveSourceMod(obj)
+    if not obj then return "<unknown>" end
+    local sourceMod = obj.sourceMod
+    if not sourceMod then
+        -- 1. Try base object for dynamically created objects (e.g. Tamriel Data hats)
+        if obj.id:match("H$") then
+            local baseObj = tes3.getObject(obj.id:sub(1, -2))
+            if baseObj and baseObj.sourceMod then
+                sourceMod = baseObj.sourceMod
+            end
+        end
+        -- 2. Fallback to ID prefix detection for common province mods
+        if not sourceMod then
+            local idUpper = obj.id:upper()
+            if idUpper:match("^T_") then
+                sourceMod = "Tamriel_Data.esm"
+            elseif idUpper:match("^TR_") then
+                sourceMod = "TR_Mainland.esm"
+            elseif idUpper:match("^SKY_") then
+                sourceMod = "Sky_Main.esm"
+            elseif idUpper:match("^CYR_") then
+                sourceMod = "Cyr_Main.esm"
+            end
+        end
+    end
+    return sourceMod or "<unknown>"
+end
+
 -- Resolves a normalized subject descriptor from a tes3object.
 function this.resolve(obj)
     if not obj then return nil end
@@ -44,7 +72,7 @@ function this.resolve(obj)
         recordId = sanitizeFilename(obj.id),
         displayName = obj.name or "Unnamed",
         typeName = objectTypeNames[obj.objectType] or "unknown",
-        sourceMod = obj.sourceMod or "<unknown>",
+        sourceMod = resolveSourceMod(obj),
         meshPath = meshPath,
         normalizedMeshPath = normalizeMeshPath(meshPath),
         config = thumbnail_settings.getDefaultConfig(obj.objectType),
@@ -105,7 +133,7 @@ function this.compileMatcher(pattern)
         local id = (obj.id or ""):lower()
         local name = (obj.name or ""):lower()
         local mPath = (obj.mesh or ""):lower():gsub("\\", "/")
-        local sourceMod = (obj.sourceMod or ""):lower()
+        local sourceMod = resolveSourceMod(obj):lower()
         for _, matcher in ipairs(termMatchers) do
             if not matcher(id, name, mPath, sourceMod) then return false end
         end
@@ -138,7 +166,7 @@ function this.search(params)
                 local id = (obj.id or ""):lower()
                 local matched
                 if pluginFilter then
-                    matched = (obj.sourceMod or "<unknown>") == pluginFilter
+                    matched = resolveSourceMod(obj) == pluginFilter
                 else
                     matched = matcher(obj)
                 end
@@ -176,7 +204,7 @@ function this.listPlugins(params)
                 local id = (obj.id or ""):lower()
                 if not seenIds[id] then
                     seenIds[id] = true
-                    local plugin = obj.sourceMod or "<unknown>"
+                    local plugin = resolveSourceMod(obj)
                     counts[plugin] = (counts[plugin] or 0) + 1
                 end
             end

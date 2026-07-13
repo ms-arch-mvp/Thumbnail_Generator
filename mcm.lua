@@ -98,6 +98,16 @@ function this.registerModConfig()
     local group = settingsPage:createCategory("Batch")
 
     group:createDropdown({
+        label = "Mode",
+        description = "Thumbnails: render images into the output folder (default).\nExport: save each matched subject as a .nif under <output folder>\\exports instead of rendering images.",
+        options = {
+            { label = "Thumbnails", value = "thumbnails" },
+            { label = "Export",     value = "export" },
+        },
+        variable = mwse.mcm.createTableVariable({ id = "batchMode", table = settings.current }),
+    })
+
+    group:createDropdown({
         label = "Render Resolution",
         description = "Offscreen render target size used for batch rendering.",
         options = resolutionOptions,
@@ -173,11 +183,11 @@ function this.registerModConfig()
 
     group:createDropdown({
         label = "Export Filename",
-        description = "Filename used by the preview window's Export button: the record's display name, its record id, or the mesh file's base name (NPCs fall back to their id, since they have no single mesh).",
+        description = "Filename used by the preview window's Export button: the record's display name, its record id, or the mesh file's base name (NPCs fall back to their id).",
         options = {
-            { label = "Name", value = "name" },
             { label = "ID", value = "id" },
-            { label = "Mesh Name", value = "mesh" },
+            { label = "Name", value = "name" },
+            { label = "Mesh", value = "mesh" },
         },
         variable = mwse.mcm.createTableVariable({ id = "exportFilename", table = settings.current }),
     })

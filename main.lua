@@ -8,7 +8,7 @@ local function initialized()
                 require("ThumbnailGenerator.ui").openMenu()
             end
         end)
-        mwse.log("[Thumbnail Generator] Initialized. Press Shift+G to open the menu.")
+        mwse.log("[Thumbnail Generator] Initialized")
     end)
     if not status then
         mwse.log("[Thumbnail Generator] Error initializing: " .. tostring(err))

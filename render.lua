@@ -321,9 +321,9 @@ function this.getOutputPath(subject, fallbackMeshPath, subFolder)
         -- under a top-level "npc" folder (parallel to the default "meshes" folder).
         -- The preview's test render still uses its own subFolder ("previews").
         if subFolder == "meshes" then
-            path = string.format("%s/npc/%s.png", basePath, namePart)
+            path = string.format("%s/thumbnails/npc/%s.png", basePath, namePart)
         else
-            path = string.format("%s/%s/npc/%s.png", basePath, subFolder, namePart)
+            path = string.format("%s/thumbnails/%s/npc/%s.png", basePath, subFolder, namePart)
         end
     else
         -- Normalized path keeps re-renders overwriting the same file.
@@ -332,7 +332,7 @@ function this.getOutputPath(subject, fallbackMeshPath, subFolder)
         if not meshName or meshName == "" then
             meshName = "unknown"
         end
-        path = string.format("%s/%s/%s.png", basePath, subFolder, meshName)
+        path = string.format("%s/thumbnails/%s/%s.png", basePath, subFolder, meshName)
     end
     -- Every output path is lowercased, folders included -- not just the mesh-derived
     -- filename (which normalizeMeshPath already lowercases on its own).

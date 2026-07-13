@@ -45,10 +45,16 @@ function this.showPluginMenu(plugins, options)
     scrollContent.autoHeight = true
 
     for _, entry in ipairs(plugins) do
-        local btn = scrollContent:createButton({ text = string.format("%s  (%d)", entry.plugin, entry.count) })
+        local block = scrollContent:createBlock()
+        block.flowDirection = tes3.flowDirection.leftToRight
+        block.widthProportional = 1.0
+        block.autoHeight = true
+        block.borderBottom = 8
+
+        local btn = block:createButton({ text = string.format("%s  (%d)", entry.plugin, entry.count) })
         btn.paddingTop = 8
         btn.paddingBottom = 8
-        btn.borderBottom = 8
+        btn.widthProportional = 1.0
         btn:register(tes3.uiEvent.mouseClick, function()
             menu:destroy()
             local matches = subject_resolver.search({ sourceMod = entry.plugin, types = options.types })
@@ -59,6 +65,17 @@ function this.showPluginMenu(plugins, options)
                 this.showSelectionMenu(matches, options)
             end
         end)
+
+        if options.onSelectSearchTerm then
+            local btnSearch = block:createButton({ text = "Use" })
+            btnSearch.paddingTop = 8
+            btnSearch.paddingBottom = 8
+            btnSearch.borderLeft = 8
+            btnSearch:register(tes3.uiEvent.mouseClick, function()
+                menu:destroy()
+                options.onSelectSearchTerm(entry.plugin)
+            end)
+        end
     end
 
     local btnClose = contents:createButton({ text = "Cancel" })

@@ -63,7 +63,14 @@ function this.openMenu()
     contents.autoHeight = true
     contents.borderAllSides = 12
 
-    local titleLabel = contents:createLabel({ text = "Thumbnails from search (id/name/mesh path/.esp/.esm):" })
+    local function getTitleText()
+        if settings.current.batchMode == "export" then
+            return "Export from search (id/name/mesh path/.esp/.esm):"
+        end
+        return "Thumbnails from search (id/name/mesh path/.esp/.esm):"
+    end
+
+    local titleLabel = contents:createLabel({ text = getTitleText() })
     titleLabel.borderBottom = 15
 
     local inputBlock = contents:createBlock()
@@ -127,7 +134,7 @@ function this.openMenu()
     buttonBlock.childAlignX = 1.0
     buttonBlock.borderTop = 20
 
-    local btnRender = buttonBlock:createButton({ text = "Batch" })
+    local btnRender = buttonBlock:createButton({ text = settings.current.batchMode == "export" and "Export" or "Batch" })
     btnRender.borderRight = 10
 
     local btnFlagged = buttonBlock:createButton({ text = "Flagged" })
@@ -164,6 +171,13 @@ function this.openMenu()
                 types = selectedTypes,
                 closeMenu = this.closeMenu,
                 onExit = this.openMenu,
+                onSelectSearchTerm = function(term)
+                    searchInput.text = term
+                    settings.lastSearchPattern = term
+                    btnClear.visible = (term ~= "")
+                    inputBlock:updateLayout()
+                    tes3ui.acquireTextInput(searchInput)
+                end,
             })
             return
         end
@@ -196,7 +210,13 @@ function this.openMenu()
     local function startBatch(extra)
         -- Drop keyboard focus so Space cancels the batch instead of typing a space.
         tes3ui.acquireTextInput(nil)
-        statusLabel.text = "Rendering batch... (Starting)"
+        -- Capture mode now so the completion message matches what actually ran,
+        -- even if the MCM is changed while the batch is in flight.
+        local isExportMode = (settings.current.batchMode == "export")
+        -- Sync title and button in case mode changed since the menu was opened.
+        titleLabel.text = getTitleText()
+        btnRender.text = isExportMode and "Export" or "Batch"
+        statusLabel.text = isExportMode and "Exporting batch... (Starting)" or "Rendering batch... (Starting)"
         statusLabel.color = getColor("active_color")
         hintLabel.text = "Space to cancel"
         btnRender.visible = false
@@ -221,13 +241,19 @@ function this.openMenu()
                     resolution = settings.current.renderResolution,
                     dstResolution = settings.current.outputResolution,
                     onProgress = function(renderedCount, totalToRender)
-                        statusLabel.text = string.format("Rendering batch... (%d/%d)", renderedCount, totalToRender)
+                        local verb = isExportMode and "Exporting" or "Rendering"
+                        statusLabel.text = string.format("%s batch... (%d/%d)", verb, renderedCount, totalToRender)
                         menu:updateLayout()
                     end,
                     onComplete = function(totalFound, successCount, emptyCount, failedCount)
-                        local text = string.format("Rendered %d thumbnails.", successCount)
-                        if emptyCount and emptyCount > 0 then
-                            text = text .. string.format(" %d empty skipped.", emptyCount)
+                        local text
+                        if isExportMode then
+                            text = string.format("Exported %d files.", successCount)
+                        else
+                            text = string.format("Rendered %d thumbnails.", successCount)
+                            if emptyCount and emptyCount > 0 then
+                                text = text .. string.format(" %d empty skipped.", emptyCount)
+                            end
                         end
                         if failedCount and failedCount > 0 then
                             text = text .. string.format(" %d failed.", failedCount)

@@ -66,7 +66,8 @@ function this.registerModConfig()
 
     group:createTextField({
         label = "Folder Path",
-        description = "Folder name that rendered thumbnails are written under, inside Data Files (e.g. \"Thumbnail Generator\"). Shared by batch and preview renders.",
+        description = "Folder name that rendered thumbnails are written under, inside Data Files (e.g. \"Thumbnail Generator\").\n\z
+            Shared by batch and preview renders.",
         buttonText = "Apply",
         variable = mwse.mcm.createTableVariable({ id = "outputFolder", table = settings.current }),
     })
@@ -91,7 +92,8 @@ function this.registerModConfig()
 
     group:createYesNoButton({
         label = "Fit to Frame",
-        description = "When enabled, renders tighten the crop to the subject's visible pixels. When disabled, renders keep the looser first-pass framing with margin (and preview zoom/pan can carry into the output).",
+        description = "When enabled, renders tighten the crop to the subject's visible pixels.\n\z
+            When disabled, renders keep the looser first-pass framing with margin (and preview zoom/pan can carry into the output).",
         variable = mwse.mcm.createTableVariable({ id = "fitToFrame", table = settings.current }),
     })
 
@@ -130,31 +132,36 @@ function this.registerModConfig()
 
     group:createYesNoButton({
         label = "Skip Empty Renders",
-        description = "Don't write files that contain nothing visible (e.g. magic-effect records with no drawable content). Skipped items are listed in logs/empty.txt when logging is enabled.",
+        description = "Don't write files that contain nothing visible (e.g. magic-effect records with no drawable content).\n\z
+            Skipped items are listed in logs/empty.txt when logging is enabled.",
         variable = mwse.mcm.createTableVariable({ id = "skipEmptyRenders", table = settings.current }),
     })
 
     group:createYesNoButton({
         label = "Skip Existing Thumbnails",
-        description = "Don't re-render an item whose output file already exists in the output folder. Useful for resuming a large batch without redoing finished thumbnails.",
+        description = "Don't re-render an item whose output file already exists in the output folder.\n\z
+            Useful for resuming a large batch without redoing finished thumbnails.",
         variable = mwse.mcm.createTableVariable({ id = "skipExistingThumbnails", table = settings.current }),
     })
 
     group:createYesNoButton({
         label = "Render Only Rotation Exceptions",
-        description = "When enabled, batch rendering skips every mesh that has no entry in rotation_exceptions.txt. Useful for re-rendering just the items that needed a manual rotation correction after editing that file.",
+        description = "When enabled, batch rendering skips every mesh that has no entry in rotation_exceptions.txt.\n\z
+            Useful for re-rendering just the items that needed a manual rotation correction after editing that file.",
         variable = mwse.mcm.createTableVariable({ id = "renderOnlyRotationExceptions", table = settings.current }),
     })
 
     group:createYesNoButton({
         label = "NPC Filtering",
-        description = "When enabled, batch rendering only includes NPCs that respawn and have no attached script (and skips a small blacklist of duplicate guard/ordinator records). When disabled, every NPC record is rendered.",
+        description = "When enabled, batch rendering only includes NPCs that respawn and have no attached script (and skips a small blacklist of duplicate guard/ordinator records).\n\z
+            When disabled, every NPC record is rendered.",
         variable = mwse.mcm.createTableVariable({ id = "npcFiltering", table = settings.current }),
     })
 
     group:createYesNoButton({
         label = "Write Log Files",
-        description = "After a batch, write logs/failed.txt and logs/empty.txt (one entry per line) into the output folder. Logs from a run with no failures/empties are removed.",
+        description = "After a batch, write logs/failed.txt and logs/empty.txt (one entry per line) into the output folder.\n\z
+            Logs from a run with no failures/empties are removed.",
         variable = mwse.mcm.createTableVariable({ id = "writeLogs", table = settings.current }),
     })
 
@@ -183,7 +190,8 @@ function this.registerModConfig()
 
     group:createDropdown({
         label = "Export Filename",
-        description = "Filename used by the preview window's Export button: the record's display name, its record id, or the mesh file's base name (NPCs fall back to their id).",
+        description = "Filename used by the preview window's Export button:\n\z
+            the record's display name, its record id, or the mesh file's base name (NPCs fall back to their id).",
         options = {
             { label = "ID", value = "id" },
             { label = "Name", value = "name" },
@@ -196,7 +204,9 @@ function this.registerModConfig()
 
     group:createYesNoButton({
         label = "Use Profiles",
-        description = "Apply profiles saved from the preview's Save Profile button: matching records inherit the profile's camera, lighting, ortho/fit, and zoom/pan in both batch renders and previews. Scope precedence: search > type > all; latest saved wins. Each profile is its own file under the output folder's \"profiles\" subfolder; delete a file to remove its profile (loaded at startup).",
+        description = "Apply profiles saved from the preview's Save Profile button: matching records inherit the profile's camera, lighting, ortho/fit, and zoom/pan in both batch renders and previews.\n\z
+            Scope precedence: search > type > all; latest saved wins.\n\z
+            Each profile is its own file under the output folder's \"profiles\" subfolder; delete a file to remove its profile (loaded at startup).",
         variable = mwse.mcm.createTableVariable({ id = "useProfiles", table = settings.current }),
     })
 

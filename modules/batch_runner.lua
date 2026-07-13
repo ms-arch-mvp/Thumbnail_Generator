@@ -374,7 +374,7 @@ function this.cancelBatch()
         writeBatchLogs(batch)
 
         if batch.onError then
-            batch.onError("Batch rendering cancelled by user.")
+            batch.onError("Batch rendering cancelled.")
         end
 
         activeBatch = nil

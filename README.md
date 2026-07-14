@@ -9,7 +9,11 @@ Made with contributions from [Greatness7](https://github.com/Greatness7).
 
 In use by: [oaab.dev](https://www.oaab.dev/library/)
 
-### Prerequistes
+### Prerequisites
 
 * Latest version of MWSE
 * [MGE XE UF](https://www.nexusmods.com/morrowind/mods/57200)
+
+### Installation
+
+* Install as mod from releases

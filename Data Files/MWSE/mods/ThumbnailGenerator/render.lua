@@ -310,20 +310,23 @@ function this.ensureDirectory(path)
 end
 
 
---   batch, "previews" for the interactive preview's Render button). Default "meshes".
+-- Resolves the output file path for a render. `subFolder` selects the destination:
+-- "meshes" (default) for batch renders, "preview" for the preview's Render button.
+-- Batch output lives under "batch/<meshes|npc>"; the preview's test render writes
+-- into a top-level "preview" folder instead, so it never lands in the batch set.
 function this.getOutputPath(subject, fallbackMeshPath, subFolder)
     local basePath = settings.getOutputFolder()
     subFolder = subFolder or "meshes"
+    local isPreview = (subFolder == "preview")
     local path
     if subject and subject.object and subject.object.objectType == tes3.objectType.npc then
         local namePart = subject.recordId or "unknown"
-        -- NPC thumbnails are organized separately from mesh-path thumbnails: put them
-        -- under a top-level "npc" folder (parallel to the default "meshes" folder).
-        -- The preview's test render still uses its own subFolder ("previews").
-        if subFolder == "meshes" then
-            path = string.format("%s/thumbnails/npc/%s.png", basePath, namePart)
+        -- NPCs get their own "npc" folder (parallel to the mesh-path folder), in both
+        -- the batch output and the preview scratch folder.
+        if isPreview then
+            path = string.format("%s/preview/npc/%s.png", basePath, namePart)
         else
-            path = string.format("%s/thumbnails/%s/npc/%s.png", basePath, subFolder, namePart)
+            path = string.format("%s/batch/npc/%s.png", basePath, namePart)
         end
     else
         -- Normalized path keeps re-renders overwriting the same file.
@@ -332,7 +335,11 @@ function this.getOutputPath(subject, fallbackMeshPath, subFolder)
         if not meshName or meshName == "" then
             meshName = "unknown"
         end
-        path = string.format("%s/thumbnails/%s/%s.png", basePath, subFolder, meshName)
+        if isPreview then
+            path = string.format("%s/preview/%s.png", basePath, meshName)
+        else
+            path = string.format("%s/batch/%s/%s.png", basePath, subFolder, meshName)
+        end
     end
     -- Every output path is lowercased, folders included -- not just the mesh-derived
     -- filename (which normalizeMeshPath already lowercases on its own).

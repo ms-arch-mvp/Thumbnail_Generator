@@ -1046,8 +1046,8 @@ function this.open(objOrSubject, options)
     btnRenderTest.borderRight = 6
     btnRenderTest:register(tes3.uiEvent.mouseClick, function()
         local mPath = subject.meshPath
-        -- Same NPC-aware path logic as batch rendering, just under "previews".
-        local outputPath = render.getOutputPath(subject, mPath, "previews")
+        -- Same NPC-aware path logic as batch rendering, just under "preview".
+        local outputPath = render.getOutputPath(subject, mPath, "preview")
         render.ensureDirectory(outputPath)
         local ok, result = pcall(function()
             return render.render({
@@ -1087,7 +1087,7 @@ function this.open(objOrSubject, options)
 
         if ok and result then
             -- result carries the final path (render normalizes the extension)
-            local displayPath = result:gsub("^.-[/\\]previews[/\\]", "previews\\"):gsub("/", "\\")
+            local displayPath = result:gsub("^.-[/\\]preview[/\\]", "preview\\"):gsub("/", "\\")
             tes3.messageBox("Successfully rendered: " .. displayPath)
         elseif ok then
             tes3.messageBox("Error: nothing visible to render; no file written.")

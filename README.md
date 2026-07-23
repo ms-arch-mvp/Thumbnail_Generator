@@ -1,6 +1,6 @@
 <h1 align="center">Thumbnail Generator</h1>
 <p align="center">
-  <a href="https://github.com/morrowivs/Thumbnail_Generator/releases">Download</a> ·
+  <a href="https://github.com/morrowvis/Thumbnail_Generator/releases">Download</a> ·
   <a href="https://ms-arch.gitbook.io/morrowvis/thumbnail-generator/functions">Documentation</a>
 </p
 
